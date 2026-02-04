@@ -23,8 +23,24 @@ import {
   deletePage,
 } from '@/lib/db/cinematic-db';
 import type { Storybook, StorybookPage } from '@/types';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useDialog } from './DialogProvider';
-import { AddMediaPageModal } from './ui/AddMediaPageModal';
+import { AddMediaPageModal, type AddMediaItem } from './ui/AddMediaPageModal';
 import { Header } from './Header';
 
 interface StorybookDetailProps {
@@ -46,6 +62,82 @@ const PAGE_TYPE_LABELS = {
   'audio-image': 'Audio Image',
   video: 'Video',
 };
+
+function SortablePageCard({
+  page,
+  index,
+  onDelete,
+}: {
+  page: StorybookPage;
+  index: number;
+  onDelete: (id: string) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: page.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+  const Icon = PAGE_TYPE_ICONS[page.type];
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`bg-white border-2 border-loft-black shadow-[4px_4px_0px_#000] p-4 hover:shadow-[6px_6px_0px_#000] transition-all ${isDragging ? 'opacity-50 z-10' : ''}`}
+    >
+      <div className="flex justify-between items-start mb-3">
+        <div
+          className="flex items-center gap-2 cursor-grab active:cursor-grabbing"
+          {...attributes}
+          {...listeners}
+        >
+          <span className="text-xs font-mono text-gray-500">#{index + 1}</span>
+          <Icon className="h-5 w-5 text-loft-black" />
+          <span className="text-xs font-bold uppercase text-gray-600">
+            {PAGE_TYPE_LABELS[page.type]}
+          </span>
+        </div>
+        <button
+          onClick={() => onDelete(page.id)}
+          className="p-1 hover:bg-red-100 rounded"
+        >
+          <TrashIcon className="h-4 w-4 text-red-600" />
+        </button>
+      </div>
+      {page.imageUrl && (
+        <img
+          src={page.imageUrl}
+          alt={page.title || 'Page'}
+          className="w-full h-32 object-cover mb-3 border border-gray-300"
+        />
+      )}
+      <h3 className="font-bold mb-1 truncate">{page.title || 'Untitled'}</h3>
+      {page.content && (
+        <p className="text-sm text-gray-600 line-clamp-3">{page.content}</p>
+      )}
+      {page.url && (
+        <p className="text-xs text-blue-600 truncate">{page.url}</p>
+      )}
+      {page.quote && (
+        <p className="text-xs italic text-loft-yellow mt-1 truncate">
+          &quot;{page.quote}&quot;
+        </p>
+      )}
+      {page.voiceClips && page.voiceClips.length > 0 && (
+        <div className="mt-2 flex items-center gap-1 text-xs text-gray-500">
+          <SpeakerWaveIcon className="h-3 w-3" />
+          {page.voiceClips.length} voice clip(s)
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function StorybookDetail({ storybookId }: StorybookDetailProps) {
   const router = useRouter();
@@ -131,34 +223,34 @@ export function StorybookDetail({ storybookId }: StorybookDetailProps) {
     }
   };
 
-  const handleAddMediaConfirm = async (title: string, urlOrDataUrl: string) => {
-    if (!storybook || !addMediaType) return;
+  const handleAddMediaConfirm = async (items: AddMediaItem[]) => {
+    if (!storybook || !addMediaType || items.length === 0) return;
     setAddMediaType(null);
 
-    const newPage: StorybookPage = {
-      id: `page-${Date.now()}`,
+    const newPages: StorybookPage[] = items.map((item, i) => ({
+      id: `page-${Date.now()}-${i}`,
       storybookId,
-      order: pages.length,
+      order: pages.length + i,
       type: addMediaType,
       timestamp: Date.now(),
-      title,
-      imageUrl: addMediaType === 'image' ? urlOrDataUrl : undefined,
-      videoUrl: addMediaType === 'video' ? urlOrDataUrl : undefined,
-    };
+      title: item.title,
+      imageUrl: addMediaType === 'image' ? item.urlOrDataUrl : undefined,
+      videoUrl: addMediaType === 'video' ? item.urlOrDataUrl : undefined,
+    }));
 
     try {
-      await savePage(newPage);
+      for (const p of newPages) await savePage(p);
       const updatedStorybook: Storybook = {
         ...storybook,
-        pageIds: [...storybook.pageIds, newPage.id],
+        pageIds: [...storybook.pageIds, ...newPages.map((p) => p.id)],
         updatedAt: Date.now(),
       };
       await saveStorybook(updatedStorybook);
-      setPages([...pages, newPage]);
+      setPages([...pages, ...newPages]);
       setStorybook(updatedStorybook);
     } catch (err) {
-      console.error('Failed to create page:', err);
-      await dialog.alert('Failed to create page');
+      console.error('Failed to create page(s):', err);
+      await dialog.alert('Failed to create page(s)');
     }
   };
 
@@ -247,6 +339,36 @@ export function StorybookDetail({ storybookId }: StorybookDetailProps) {
 
   const handlePlayCinema = () => {
     router.push(`/storybooks/${storybookId}/cinema`);
+  };
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!storybook || !over || active.id === over.id) return;
+    const from = pages.findIndex((p) => p.id === active.id);
+    const to = pages.findIndex((p) => p.id === over.id);
+    if (from === -1 || to === -1) return;
+    const next = [...pages];
+    const [removed] = next.splice(from, 1);
+    next.splice(to, 0, removed);
+    const reorderedPageIds = next.map((p) => p.id);
+    setPages(next);
+    const updatedStorybook: Storybook = {
+      ...storybook,
+      pageIds: reorderedPageIds,
+      updatedAt: Date.now(),
+    };
+    setStorybook(updatedStorybook);
+    try {
+      await saveStorybook(updatedStorybook);
+    } catch (err) {
+      console.error('Failed to save order:', err);
+      await dialog.alert('Failed to save order');
+    }
   };
 
   if (isLoading) {
@@ -413,72 +535,27 @@ export function StorybookDetail({ storybookId }: StorybookDetailProps) {
               No pages yet. Add your first page above.
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {pages.map((page, index) => {
-                const Icon = PAGE_TYPE_ICONS[page.type];
-                return (
-                  <div
-                    key={page.id}
-                    className="bg-white border-2 border-loft-black shadow-[4px_4px_0px_#000] p-4 hover:shadow-[6px_6px_0px_#000] transition-all"
-                  >
-                    <div className="flex justify-between items-start mb-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-mono text-gray-500">
-                          #{index + 1}
-                        </span>
-                        <Icon className="h-5 w-5 text-loft-black" />
-                        <span className="text-xs font-bold uppercase text-gray-600">
-                          {PAGE_TYPE_LABELS[page.type]}
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => handleDeletePage(page.id)}
-                        className="p-1 hover:bg-red-100 rounded"
-                      >
-                        <TrashIcon className="h-4 w-4 text-red-600" />
-                      </button>
-                    </div>
-
-                    {page.imageUrl && (
-                      <img
-                        src={page.imageUrl}
-                        alt={page.title || 'Page'}
-                        className="w-full h-32 object-cover mb-3 border border-gray-300"
-                      />
-                    )}
-
-                    <h3 className="font-bold mb-1 truncate">
-                      {page.title || 'Untitled'}
-                    </h3>
-
-                    {page.content && (
-                      <p className="text-sm text-gray-600 line-clamp-3">
-                        {page.content}
-                      </p>
-                    )}
-
-                    {page.url && (
-                      <p className="text-xs text-blue-600 truncate">
-                        {page.url}
-                      </p>
-                    )}
-
-                    {page.quote && (
-                      <p className="text-xs italic text-loft-yellow mt-1 truncate">
-                        &quot;{page.quote}&quot;
-                      </p>
-                    )}
-
-                    {page.voiceClips && page.voiceClips.length > 0 && (
-                      <div className="mt-2 flex items-center gap-1 text-xs text-gray-500">
-                        <SpeakerWaveIcon className="h-3 w-3" />
-                        {page.voiceClips.length} voice clip(s)
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={pages.map((p) => p.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {pages.map((page, index) => (
+                    <SortablePageCard
+                      key={page.id}
+                      page={page}
+                      index={index}
+                      onDelete={handleDeletePage}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
           )}
         </div>
       </main>
