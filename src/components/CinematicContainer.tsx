@@ -128,7 +128,7 @@ export function CinematicContainer() {
   const handleTextEdit = useCallback(async () => {
     if (!currentImage || !textEditInstruction) return;
     setIsProcessing(true);
-    setLoadingMsg('Gemini is applying edits...');
+    setLoadingMsg('Robot is applying edits...');
     try {
       const res = await fetch('/api/cinematic/edit', {
         method: 'POST',

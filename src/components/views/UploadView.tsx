@@ -30,7 +30,7 @@ export function UploadView() {
   const onAnalyze = async () => {
     if (!sketch) return;
     setAppState(AppState.ANALYZING);
-    setLoadingMsg('Gemini is analyzing your sketch structure...');
+    setLoadingMsg('Robot is analyzing your sketch structure...');
     try {
       const base64 = sketch.split(',')[1];
       const res = await fetch('/api/cinematic/analyze', {

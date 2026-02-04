@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { AppState } from '@/types';
+import { indexedDbStorage } from '@/lib/db/storage-adapter';
 import type {
   PromptIdea,
   GalleryItem,
@@ -240,6 +241,7 @@ export const useCinematicStore = create<CinematicStore>()(
     }),
     {
       name: 'cinematic-sketch-storage',
+      storage: indexedDbStorage,
       partialize: (state) => ({ gallery: state.gallery }),
     }
   )
