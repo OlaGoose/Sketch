@@ -1,11 +1,7 @@
 'use client';
 
-import { CinematicContainer } from '@/components/CinematicContainer';
+import { StorybooksGallery } from '@/components/StorybooksGallery';
 
 export default function HomePage() {
-  return (
-    <main className="min-h-screen">
-      <CinematicContainer />
-    </main>
-  );
+  return <StorybooksGallery />;
 }

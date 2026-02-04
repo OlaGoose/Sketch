@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import { DialogProvider } from '@/components/DialogProvider';
 
 export const metadata: Metadata = {
   title: 'Cinematic Sketch - 映画のスケッチ',
@@ -36,7 +37,9 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <DialogProvider>{children}</DialogProvider>
+      </body>
     </html>
   );
 }

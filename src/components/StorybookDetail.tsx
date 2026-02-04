@@ -1,0 +1,496 @@
+'use client';
+
+import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  ArrowLeftIcon,
+  PlusIcon,
+  PlayIcon,
+  PencilIcon,
+  TrashIcon,
+  PhotoIcon,
+  DocumentTextIcon,
+  GlobeAltIcon,
+  VideoCameraIcon,
+  SpeakerWaveIcon,
+} from '@heroicons/react/24/outline';
+import {
+  getStorybookById,
+  saveStorybook,
+  deleteStorybook,
+  getPagesByStorybookId,
+  savePage,
+  deletePage,
+} from '@/lib/db/cinematic-db';
+import type { Storybook, StorybookPage } from '@/types';
+import { useDialog } from './DialogProvider';
+import { AddMediaPageModal } from './ui/AddMediaPageModal';
+import { Header } from './Header';
+
+interface StorybookDetailProps {
+  storybookId: string;
+}
+
+const PAGE_TYPE_ICONS = {
+  text: DocumentTextIcon,
+  webpage: GlobeAltIcon,
+  image: PhotoIcon,
+  'audio-image': SpeakerWaveIcon,
+  video: VideoCameraIcon,
+};
+
+const PAGE_TYPE_LABELS = {
+  text: 'Text',
+  webpage: 'Webpage',
+  image: 'Image',
+  'audio-image': 'Audio Image',
+  video: 'Video',
+};
+
+export function StorybookDetail({ storybookId }: StorybookDetailProps) {
+  const router = useRouter();
+  const dialog = useDialog();
+  const [storybook, setStorybook] = useState<Storybook | null>(null);
+  const [pages, setPages] = useState<StorybookPage[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editedTitle, setEditedTitle] = useState('');
+  const [editedDescription, setEditedDescription] = useState('');
+  const [addMediaType, setAddMediaType] = useState<'image' | 'video' | null>(null);
+
+  useEffect(() => {
+    loadStorybookData();
+  }, [storybookId]);
+
+  const loadStorybookData = async () => {
+    try {
+      const book = await getStorybookById(storybookId);
+      if (!book) {
+        await dialog.alert('Storybook not found');
+        router.push('/');
+        return;
+      }
+      setStorybook(book);
+      setEditedTitle(book.title);
+      setEditedDescription(book.description || '');
+
+      const bookPages = await getPagesByStorybookId(storybookId);
+      setPages(bookPages);
+    } catch (err) {
+      console.error('Failed to load storybook:', err);
+      await dialog.alert('Failed to load storybook');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSaveTitle = async () => {
+    if (!storybook || !editedTitle.trim()) return;
+    
+    const updated: Storybook = {
+      ...storybook,
+      title: editedTitle.trim(),
+      description: editedDescription.trim() || undefined,
+      updatedAt: Date.now(),
+    };
+
+    try {
+      await saveStorybook(updated);
+      setStorybook(updated);
+      setIsEditingTitle(false);
+    } catch (err) {
+      console.error('Failed to update storybook:', err);
+      await dialog.alert('Failed to update storybook');
+    }
+  };
+
+  const handleDeleteStorybook = async () => {
+    const ok = await dialog.confirm('Delete this storybook and all its pages?', {
+      confirmLabel: 'DELETE',
+      cancelLabel: 'CANCEL',
+      danger: true,
+    });
+    if (!ok) return;
+
+    try {
+      await deleteStorybook(storybookId);
+      router.push('/');
+    } catch (err) {
+      console.error('Failed to delete storybook:', err);
+      await dialog.alert('Failed to delete storybook');
+    }
+  };
+
+  const handleAddPage = (type: StorybookPage['type']) => {
+    if (type === 'audio-image') {
+      router.push(`/create?storybookId=${storybookId}`);
+    } else if (type === 'image' || type === 'video') {
+      setAddMediaType(type);
+    } else {
+      createSimplePage(type);
+    }
+  };
+
+  const handleAddMediaConfirm = async (title: string, urlOrDataUrl: string) => {
+    if (!storybook || !addMediaType) return;
+    setAddMediaType(null);
+
+    const newPage: StorybookPage = {
+      id: `page-${Date.now()}`,
+      storybookId,
+      order: pages.length,
+      type: addMediaType,
+      timestamp: Date.now(),
+      title,
+      imageUrl: addMediaType === 'image' ? urlOrDataUrl : undefined,
+      videoUrl: addMediaType === 'video' ? urlOrDataUrl : undefined,
+    };
+
+    try {
+      await savePage(newPage);
+      const updatedStorybook: Storybook = {
+        ...storybook,
+        pageIds: [...storybook.pageIds, newPage.id],
+        updatedAt: Date.now(),
+      };
+      await saveStorybook(updatedStorybook);
+      setPages([...pages, newPage]);
+      setStorybook(updatedStorybook);
+    } catch (err) {
+      console.error('Failed to create page:', err);
+      await dialog.alert('Failed to create page');
+    }
+  };
+
+  const createSimplePage = async (type: StorybookPage['type']) => {
+    if (!storybook) return;
+
+    let title = '';
+    let content = '';
+    let url = '';
+
+    if (type === 'text') {
+      const values = await dialog.prompt('Add Text Page', [
+        { label: 'Page Title', defaultValue: 'Untitled' },
+        { label: 'Content', placeholder: 'Enter text content', multiline: true },
+      ]);
+      if (!values) return;
+      title = values[0]?.trim() || 'Untitled';
+      content = values[1] ?? '';
+    } else if (type === 'webpage') {
+      const values = await dialog.prompt('Add Webpage', [
+        { label: 'Page Title', defaultValue: 'Webpage' },
+        { label: 'URL', placeholder: 'Enter URL' },
+      ]);
+      if (!values || !values[1]?.trim()) return;
+      title = values[0]?.trim() || 'Webpage';
+      url = values[1].trim();
+    }
+
+    const newPage: StorybookPage = {
+      id: `page-${Date.now()}`,
+      storybookId,
+      order: pages.length,
+      type,
+      timestamp: Date.now(),
+      title,
+      content: type === 'text' ? content : undefined,
+      url: type === 'webpage' ? url : undefined,
+    };
+
+    try {
+      await savePage(newPage);
+      
+      // Update storybook pageIds
+      const updatedStorybook: Storybook = {
+        ...storybook,
+        pageIds: [...storybook.pageIds, newPage.id],
+        updatedAt: Date.now(),
+      };
+      await saveStorybook(updatedStorybook);
+      
+      setPages([...pages, newPage]);
+      setStorybook(updatedStorybook);
+    } catch (err) {
+      console.error('Failed to create page:', err);
+      await dialog.alert('Failed to create page');
+    }
+  };
+
+  const handleDeletePage = async (pageId: string) => {
+    if (!storybook) return;
+    const ok = await dialog.confirm('Delete this page?', {
+      confirmLabel: 'DELETE',
+      cancelLabel: 'CANCEL',
+      danger: true,
+    });
+    if (!ok) return;
+
+    try {
+      await deletePage(pageId);
+      
+      // Update storybook pageIds
+      const updatedStorybook: Storybook = {
+        ...storybook,
+        pageIds: storybook.pageIds.filter((id) => id !== pageId),
+        updatedAt: Date.now(),
+      };
+      await saveStorybook(updatedStorybook);
+      
+      setPages(pages.filter((p) => p.id !== pageId));
+      setStorybook(updatedStorybook);
+    } catch (err) {
+      console.error('Failed to delete page:', err);
+      await dialog.alert('Failed to delete page');
+    }
+  };
+
+  const handlePlayCinema = () => {
+    router.push(`/storybooks/${storybookId}/cinema`);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex flex-col font-sans text-loft-black bg-loft-gray">
+        <Header />
+        <main className="flex-grow flex items-center justify-center">
+          <p className="text-loft-black text-2xl">Loading...</p>
+        </main>
+      </div>
+    );
+  }
+
+  if (!storybook) {
+    return null;
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col font-sans text-loft-black bg-loft-gray">
+      <Header />
+
+      <main className="flex-grow p-8 max-w-7xl mx-auto w-full">
+        {/* Header Section */}
+        <div className="mb-8 flex items-start justify-between">
+          <button
+            onClick={() => router.push('/')}
+            className="flex items-center gap-2 px-4 py-2 bg-white border-2 border-loft-black shadow-[4px_4px_0px_#000] hover:shadow-[2px_2px_0px_#000] hover:translate-x-0.5 hover:translate-y-0.5 transition-all font-bold"
+          >
+            <ArrowLeftIcon className="h-5 w-5" />
+            BACK
+          </button>
+
+          <div className="flex gap-4">
+            <button
+              onClick={handlePlayCinema}
+              className="flex items-center gap-2 px-6 py-2 bg-loft-yellow text-loft-black border-2 border-loft-black shadow-[4px_4px_0px_#000] hover:shadow-[2px_2px_0px_#000] hover:translate-x-0.5 hover:translate-y-0.5 transition-all font-bold"
+            >
+              <PlayIcon className="h-5 w-5" />
+              CINEMA MODE
+            </button>
+            <button
+              onClick={handleDeleteStorybook}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white border-2 border-loft-black shadow-[4px_4px_0px_#000] hover:shadow-[2px_2px_0px_#000] hover:translate-x-0.5 hover:translate-y-0.5 transition-all font-bold"
+            >
+              <TrashIcon className="h-5 w-5" />
+              DELETE
+            </button>
+          </div>
+        </div>
+
+        {/* Storybook Info */}
+        <div className="bg-white border-2 border-loft-black shadow-[8px_8px_0px_#000] p-6 mb-8">
+          {isEditingTitle ? (
+            <div className="space-y-4">
+              <input
+                type="text"
+                value={editedTitle}
+                onChange={(e) => setEditedTitle(e.target.value)}
+                className="w-full text-3xl font-black uppercase tracking-wide border-2 border-loft-black px-4 py-2"
+                placeholder="Storybook Title"
+              />
+              <textarea
+                value={editedDescription}
+                onChange={(e) => setEditedDescription(e.target.value)}
+                className="w-full border-2 border-loft-black px-4 py-2 resize-none"
+                rows={3}
+                placeholder="Description (optional)"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSaveTitle}
+                  className="px-4 py-2 bg-loft-yellow text-loft-black border-2 border-loft-black font-bold hover:bg-yellow-400"
+                >
+                  SAVE
+                </button>
+                <button
+                  onClick={() => {
+                    setIsEditingTitle(false);
+                    setEditedTitle(storybook.title);
+                    setEditedDescription(storybook.description || '');
+                  }}
+                  className="px-4 py-2 bg-gray-300 text-loft-black border-2 border-loft-black font-bold hover:bg-gray-400"
+                >
+                  CANCEL
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="flex justify-between items-start mb-2">
+                <h1 className="text-3xl font-black uppercase tracking-wide">
+                  {storybook.title}
+                </h1>
+                <button
+                  onClick={() => setIsEditingTitle(true)}
+                  className="p-2 hover:bg-gray-100 rounded"
+                >
+                  <PencilIcon className="h-5 w-5" />
+                </button>
+              </div>
+              {storybook.description && (
+                <p className="text-gray-600">{storybook.description}</p>
+              )}
+              <p className="text-sm text-gray-500 mt-2 font-mono">
+                Updated: {new Date(storybook.updatedAt).toLocaleString()}
+              </p>
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <span className="text-sm font-bold uppercase tracking-wide text-loft-black">
+                  Background music:{' '}
+                </span>
+                <span className="text-sm text-gray-600">
+                  {storybook.backgroundMusicName || 'None'}
+                </span>
+                <div className="flex gap-2 mt-2">
+                  <button
+                    type="button"
+                    disabled
+                    className="px-3 py-1.5 text-xs bg-loft-gray text-gray-400 border-2 border-gray-300 font-bold cursor-not-allowed"
+                    title="Coming soon"
+                  >
+                    UPLOAD
+                  </button>
+                  <button
+                    type="button"
+                    disabled
+                    className="px-3 py-1.5 text-xs bg-loft-gray text-gray-400 border-2 border-gray-300 font-bold cursor-not-allowed"
+                    title="Coming soon"
+                  >
+                    AI GENERATE
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Add Page Section */}
+        <div className="mb-8">
+          <h2 className="text-xl font-bold mb-4 uppercase">Add Page</h2>
+          <div className="flex gap-3 flex-wrap">
+            {(['text', 'webpage', 'image', 'audio-image', 'video'] as const).map((type) => {
+              const Icon = PAGE_TYPE_ICONS[type];
+              return (
+                <button
+                  key={type}
+                  onClick={() => handleAddPage(type)}
+                  className="flex items-center gap-2 px-4 py-3 bg-white border-2 border-loft-black shadow-[4px_4px_0px_#000] hover:shadow-[2px_2px_0px_#000] hover:translate-x-0.5 hover:translate-y-0.5 transition-all font-bold text-sm"
+                >
+                  <Icon className="h-5 w-5" />
+                  {PAGE_TYPE_LABELS[type]}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Pages List */}
+        <div>
+          <h2 className="text-xl font-bold mb-4 uppercase">
+            Pages ({pages.length})
+          </h2>
+          {pages.length === 0 ? (
+            <div className="bg-white border-2 border-loft-black p-8 text-center text-gray-500">
+              No pages yet. Add your first page above.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {pages.map((page, index) => {
+                const Icon = PAGE_TYPE_ICONS[page.type];
+                return (
+                  <div
+                    key={page.id}
+                    className="bg-white border-2 border-loft-black shadow-[4px_4px_0px_#000] p-4 hover:shadow-[6px_6px_0px_#000] transition-all"
+                  >
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono text-gray-500">
+                          #{index + 1}
+                        </span>
+                        <Icon className="h-5 w-5 text-loft-black" />
+                        <span className="text-xs font-bold uppercase text-gray-600">
+                          {PAGE_TYPE_LABELS[page.type]}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => handleDeletePage(page.id)}
+                        className="p-1 hover:bg-red-100 rounded"
+                      >
+                        <TrashIcon className="h-4 w-4 text-red-600" />
+                      </button>
+                    </div>
+
+                    {page.imageUrl && (
+                      <img
+                        src={page.imageUrl}
+                        alt={page.title || 'Page'}
+                        className="w-full h-32 object-cover mb-3 border border-gray-300"
+                      />
+                    )}
+
+                    <h3 className="font-bold mb-1 truncate">
+                      {page.title || 'Untitled'}
+                    </h3>
+
+                    {page.content && (
+                      <p className="text-sm text-gray-600 line-clamp-3">
+                        {page.content}
+                      </p>
+                    )}
+
+                    {page.url && (
+                      <p className="text-xs text-blue-600 truncate">
+                        {page.url}
+                      </p>
+                    )}
+
+                    {page.quote && (
+                      <p className="text-xs italic text-loft-yellow mt-1 truncate">
+                        &quot;{page.quote}&quot;
+                      </p>
+                    )}
+
+                    {page.voiceClips && page.voiceClips.length > 0 && (
+                      <div className="mt-2 flex items-center gap-1 text-xs text-gray-500">
+                        <SpeakerWaveIcon className="h-3 w-3" />
+                        {page.voiceClips.length} voice clip(s)
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </main>
+
+      {addMediaType && (
+        <AddMediaPageModal
+          open={!!addMediaType}
+          onClose={() => setAddMediaType(null)}
+          type={addMediaType}
+          onConfirm={handleAddMediaConfirm}
+        />
+      )}
+    </div>
+  );
+}

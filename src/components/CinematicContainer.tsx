@@ -1,9 +1,10 @@
 'use client';
 
 import { useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { useCinematicStore } from '@/lib/store/cinematic-store';
 import { AppState } from '@/types';
-import type { PromptIdea } from '@/types';
+import type { PromptIdea, StorybookPage } from '@/types';
 import { playVoiceClip } from '@/utils/audio';
 import type { VoiceClip } from '@/types';
 import { Header } from './Header';
@@ -15,8 +16,16 @@ import { EditingView } from './views/EditingView';
 import { GalleryView } from './views/GalleryView';
 import { AccessRequiredView } from './views/AccessRequiredView';
 import { ZoomModal } from './ZoomModal';
+import { useDialog } from './DialogProvider';
+import { getStorybookById, saveStorybook, savePage } from '@/lib/db/cinematic-db';
 
-export function CinematicContainer() {
+interface CinematicContainerProps {
+  storybookId?: string;
+}
+
+export function CinematicContainer({ storybookId }: CinematicContainerProps) {
+  const router = useRouter();
+  const dialog = useDialog();
   const bgAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
 
@@ -365,21 +374,68 @@ export function CinematicContainer() {
         return c;
       })
     );
-    addGalleryItem({
-      id: Date.now().toString(),
-      imageUrl: state.currentImage,
-      prompt: state.selectedIdea.title,
-      timestamp: Date.now(),
-      quote: state.currentQuote || undefined,
-      voiceClips: resolvedClips.length ? resolvedClips : undefined,
-      backgroundAudioUrl: state.bgAudioUrl || undefined,
-      bgAudioOptions:
-        state.bgAudioUrl && (state.bgVolume !== 1 || state.bgPlayCount !== 1 || !state.bgLoop)
-          ? { volume: state.bgVolume, playCount: state.bgPlayCount, loop: state.bgLoop }
-          : undefined,
-    });
-    setAppState(AppState.GALLERY);
-  }, [addGalleryItem, setAppState]);
+
+    // If storybookId is provided, save as a page to that storybook
+    if (storybookId) {
+      try {
+        const storybook = await getStorybookById(storybookId);
+        if (!storybook) {
+          await dialog.alert('Storybook not found');
+          return;
+        }
+
+        const newPage: StorybookPage = {
+          id: `page-${Date.now()}`,
+          storybookId,
+          order: storybook.pageIds.length,
+          type: 'audio-image',
+          timestamp: Date.now(),
+          title: state.selectedIdea.title,
+          imageUrl: state.currentImage,
+          prompt: state.selectedIdea.title,
+          quote: state.currentQuote || undefined,
+          voiceClips: resolvedClips.length ? resolvedClips : undefined,
+          backgroundAudioUrl: state.bgAudioUrl || undefined,
+          bgAudioOptions:
+            state.bgAudioUrl && (state.bgVolume !== 1 || state.bgPlayCount !== 1 || !state.bgLoop)
+              ? { volume: state.bgVolume, playCount: state.bgPlayCount, loop: state.bgLoop }
+              : undefined,
+        };
+
+        await savePage(newPage);
+
+        // Update storybook pageIds
+        const updatedStorybook = {
+          ...storybook,
+          pageIds: [...storybook.pageIds, newPage.id],
+          updatedAt: Date.now(),
+          coverImage: storybook.coverImage || state.currentImage, // Use first image as cover
+        };
+        await saveStorybook(updatedStorybook);
+
+        router.push(`/storybooks/${storybookId}`);
+      } catch (err) {
+        console.error('Failed to save page to storybook:', err);
+        await dialog.alert('Failed to save page to storybook');
+      }
+    } else {
+      // Otherwise, save to gallery as before
+      addGalleryItem({
+        id: Date.now().toString(),
+        imageUrl: state.currentImage,
+        prompt: state.selectedIdea.title,
+        timestamp: Date.now(),
+        quote: state.currentQuote || undefined,
+        voiceClips: resolvedClips.length ? resolvedClips : undefined,
+        backgroundAudioUrl: state.bgAudioUrl || undefined,
+        bgAudioOptions:
+          state.bgAudioUrl && (state.bgVolume !== 1 || state.bgPlayCount !== 1 || !state.bgLoop)
+            ? { volume: state.bgVolume, playCount: state.bgPlayCount, loop: state.bgLoop }
+            : undefined,
+      });
+      setAppState(AppState.GALLERY);
+    }
+  }, [addGalleryItem, setAppState, storybookId, router]);
 
   if (!hasApiKey) {
     return <AccessRequiredView />;

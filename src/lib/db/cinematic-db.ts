@@ -1,13 +1,16 @@
 /**
  * IndexedDB persistence for Cinematic Sketch.
  * Stores gallery items (images, audio, text) without localStorage size limits.
+ * Also stores storybooks and pages for the new picture book system.
  */
 
-import type { GalleryItem } from '@/types';
+import type { GalleryItem, Storybook, StorybookPage } from '@/types';
 
 const DB_NAME = 'cinematic-sketch-db';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // Incremented for new object stores
 const STORE_GALLERY = 'gallery';
+const STORE_STORYBOOKS = 'storybooks';
+const STORE_PAGES = 'pages';
 const KEY_PATH = 'id';
 
 function openDB(): Promise<IDBDatabase> {
@@ -22,6 +25,13 @@ function openDB(): Promise<IDBDatabase> {
       const db = (event.target as IDBOpenDBRequest).result;
       if (!db.objectStoreNames.contains(STORE_GALLERY)) {
         db.createObjectStore(STORE_GALLERY, { keyPath: KEY_PATH });
+      }
+      if (!db.objectStoreNames.contains(STORE_STORYBOOKS)) {
+        db.createObjectStore(STORE_STORYBOOKS, { keyPath: KEY_PATH });
+      }
+      if (!db.objectStoreNames.contains(STORE_PAGES)) {
+        const pageStore = db.createObjectStore(STORE_PAGES, { keyPath: KEY_PATH });
+        pageStore.createIndex('storybookId', 'storybookId', { unique: false });
       }
     };
   });
@@ -96,6 +106,181 @@ export function clearGallery(): Promise<void> {
         request.onerror = () => {
           db.close();
           reject(request.error);
+        };
+        tx.onerror = () => {
+          db.close();
+          reject(tx.error);
+        };
+      })
+  );
+}
+
+// ==================== Storybook CRUD ====================
+
+export function getAllStorybooks(): Promise<Storybook[]> {
+  return openDB().then(
+    (db) =>
+      new Promise<Storybook[]>((resolve, reject) => {
+        const tx = db.transaction(STORE_STORYBOOKS, 'readonly');
+        const store = tx.objectStore(STORE_STORYBOOKS);
+        const request = store.getAll();
+        request.onsuccess = () => {
+          const items = (request.result ?? []) as Storybook[];
+          items.sort((a, b) => b.updatedAt - a.updatedAt);
+          resolve(items);
+        };
+        request.onerror = () => reject(request.error);
+        tx.oncomplete = () => db.close();
+        tx.onerror = () => {
+          db.close();
+          reject(tx.error);
+        };
+      })
+  );
+}
+
+export function getStorybookById(id: string): Promise<Storybook | null> {
+  return openDB().then(
+    (db) =>
+      new Promise<Storybook | null>((resolve, reject) => {
+        const tx = db.transaction(STORE_STORYBOOKS, 'readonly');
+        const store = tx.objectStore(STORE_STORYBOOKS);
+        const request = store.get(id);
+        request.onsuccess = () => resolve((request.result as Storybook) ?? null);
+        request.onerror = () => reject(request.error);
+        tx.oncomplete = () => db.close();
+        tx.onerror = () => {
+          db.close();
+          reject(tx.error);
+        };
+      })
+  );
+}
+
+export function saveStorybook(storybook: Storybook): Promise<void> {
+  return openDB().then(
+    (db) =>
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE_STORYBOOKS, 'readwrite');
+        const store = tx.objectStore(STORE_STORYBOOKS);
+        store.put(storybook);
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => {
+          db.close();
+          reject(tx.error);
+        };
+      })
+  );
+}
+
+export function deleteStorybook(id: string): Promise<void> {
+  return openDB().then(
+    (db) =>
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction([STORE_STORYBOOKS, STORE_PAGES], 'readwrite');
+        const storybookStore = tx.objectStore(STORE_STORYBOOKS);
+        const pageStore = tx.objectStore(STORE_PAGES);
+        
+        storybookStore.delete(id);
+        
+        // Delete all pages belonging to this storybook
+        const index = pageStore.index('storybookId');
+        const request = index.openCursor(IDBKeyRange.only(id));
+        request.onsuccess = (event) => {
+          const cursor = (event.target as IDBRequest).result;
+          if (cursor) {
+            cursor.delete();
+            cursor.continue();
+          }
+        };
+        
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => {
+          db.close();
+          reject(tx.error);
+        };
+      })
+  );
+}
+
+// ==================== StorybookPage CRUD ====================
+
+export function getPagesByStorybookId(storybookId: string): Promise<StorybookPage[]> {
+  return openDB().then(
+    (db) =>
+      new Promise<StorybookPage[]>((resolve, reject) => {
+        const tx = db.transaction(STORE_PAGES, 'readonly');
+        const store = tx.objectStore(STORE_PAGES);
+        const index = store.index('storybookId');
+        const request = index.getAll(storybookId);
+        request.onsuccess = () => {
+          const pages = (request.result ?? []) as StorybookPage[];
+          pages.sort((a, b) => a.order - b.order);
+          resolve(pages);
+        };
+        request.onerror = () => reject(request.error);
+        tx.oncomplete = () => db.close();
+        tx.onerror = () => {
+          db.close();
+          reject(tx.error);
+        };
+      })
+  );
+}
+
+export function getPageById(id: string): Promise<StorybookPage | null> {
+  return openDB().then(
+    (db) =>
+      new Promise<StorybookPage | null>((resolve, reject) => {
+        const tx = db.transaction(STORE_PAGES, 'readonly');
+        const store = tx.objectStore(STORE_PAGES);
+        const request = store.get(id);
+        request.onsuccess = () => resolve((request.result as StorybookPage) ?? null);
+        request.onerror = () => reject(request.error);
+        tx.oncomplete = () => db.close();
+        tx.onerror = () => {
+          db.close();
+          reject(tx.error);
+        };
+      })
+  );
+}
+
+export function savePage(page: StorybookPage): Promise<void> {
+  return openDB().then(
+    (db) =>
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE_PAGES, 'readwrite');
+        const store = tx.objectStore(STORE_PAGES);
+        store.put(page);
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => {
+          db.close();
+          reject(tx.error);
+        };
+      })
+  );
+}
+
+export function deletePage(id: string): Promise<void> {
+  return openDB().then(
+    (db) =>
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE_PAGES, 'readwrite');
+        const store = tx.objectStore(STORE_PAGES);
+        store.delete(id);
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
         };
         tx.onerror = () => {
           db.close();

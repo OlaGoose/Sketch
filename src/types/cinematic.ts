@@ -50,6 +50,54 @@ export enum AppState {
   GALLERY = 'GALLERY',
 }
 
+/**
+ * Storybook - A collection of pages (picture book)
+ */
+export interface Storybook {
+  id: string;
+  title: string;
+  description?: string;
+  coverImage?: string;
+  timestamp: number;
+  updatedAt: number;
+  pageIds: string[]; // Ordered page IDs
+  /** Background music for the whole storybook (upload / AI – UI only for now) */
+  backgroundMusicUrl?: string;
+  backgroundMusicName?: string;
+}
+
+/**
+ * StorybookPage - A page within a storybook
+ * Supports multiple types: text, webpage, image, audio-image, video
+ */
+export interface StorybookPage {
+  id: string;
+  storybookId: string;
+  order: number;
+  type: 'text' | 'webpage' | 'image' | 'audio-image' | 'video';
+  timestamp: number;
+
+  // Common fields
+  title?: string;
+
+  // Text page
+  content?: string;
+
+  // Webpage
+  url?: string;
+
+  // Image / Audio-image (enhanced with voice)
+  imageUrl?: string;
+  prompt?: string;
+  quote?: string;
+  voiceClips?: VoiceClip[];
+  backgroundAudioUrl?: string;
+  bgAudioOptions?: AudioPlayOptions;
+
+  // Video
+  videoUrl?: string;
+}
+
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;

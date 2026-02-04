@@ -17,6 +17,8 @@ import type {
   AmbienceType,
   VoiceClip,
   AudioPlayOptions,
+  Storybook,
+  StorybookPage,
 } from '@/types';
 
 interface CinematicStore {
@@ -52,6 +54,10 @@ interface CinematicStore {
   ambienceType: AmbienceType;
   temperature: number;
   selectedVoice: VoiceOption;
+  
+  // Storybook state
+  storybooks: Storybook[];
+  currentStorybookId: string | null;
 
   setAppState: (s: AppState) => void;
   setSketch: (s: string | null) => void;
@@ -94,6 +100,13 @@ interface CinematicStore {
   resetVoiceForNewImage: () => void;
   resetBlendAndVoiceAfterEdit: () => void;
   loadFromGallery: (item: GalleryItem) => void;
+  
+  // Storybook actions
+  setStorybooks: (storybooks: Storybook[]) => void;
+  addStorybook: (storybook: Storybook) => void;
+  updateStorybook: (id: string, patch: Partial<Storybook>) => void;
+  removeStorybook: (id: string) => void;
+  setCurrentStorybookId: (id: string | null) => void;
 }
 
 const defaultModel: ImageModelType = 'gemini-2.5-flash-image';
@@ -133,6 +146,8 @@ export const useCinematicStore = create<CinematicStore>()(
       ambienceType: 'narration',
       temperature: 0.5,
       selectedVoice: 'Auto',
+      storybooks: [],
+      currentStorybookId: null,
 
       setAppState: (appState) => set({ appState }),
       setSketch: (sketch) => set({ sketch }),
@@ -238,6 +253,22 @@ export const useCinematicStore = create<CinematicStore>()(
           bgLoop: item.bgAudioOptions?.loop ?? true,
           appState: AppState.EDITING,
         }),
+      
+      // Storybook actions
+      setStorybooks: (storybooks) => set({ storybooks }),
+      addStorybook: (storybook) =>
+        set((state) => ({ storybooks: [storybook, ...state.storybooks] })),
+      updateStorybook: (id, patch) =>
+        set((state) => ({
+          storybooks: state.storybooks.map((sb) =>
+            sb.id === id ? { ...sb, ...patch } : sb
+          ),
+        })),
+      removeStorybook: (id) =>
+        set((state) => ({
+          storybooks: state.storybooks.filter((sb) => sb.id !== id),
+        })),
+      setCurrentStorybookId: (currentStorybookId) => set({ currentStorybookId }),
     }),
     {
       name: 'cinematic-sketch-storage',
