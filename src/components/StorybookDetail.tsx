@@ -70,14 +70,18 @@ const FOLDER_IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', '
 const FOLDER_VIDEO_EXTS = new Set(['mp4', 'webm', 'mov', 'avi', 'mkv']);
 const FOLDER_TEXT_EXTS = new Set(['txt', 'md']);
 
+const EDITABLE_PAGE_TYPES: StorybookPage['type'][] = ['image', 'audio-image'];
+
 function SortablePageCard({
   page,
   index,
   onDelete,
+  onEditPage,
 }: {
   page: StorybookPage;
   index: number;
   onDelete: (id: string) => void;
+  onEditPage?: (page: StorybookPage) => void;
 }) {
   const {
     attributes,
@@ -92,6 +96,10 @@ function SortablePageCard({
       ? undefined
       : { transform: CSS.Transform.toString(transform), transition };
   const Icon = PAGE_TYPE_ICONS[page.type];
+  const isEditable = EDITABLE_PAGE_TYPES.includes(page.type);
+  const handleCardClick = () => {
+    if (isEditable && onEditPage) onEditPage(page);
+  };
   return (
     <div
       ref={setNodeRef}
@@ -111,12 +119,31 @@ function SortablePageCard({
           </span>
         </div>
         <button
-          onClick={() => onDelete(page.id)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(page.id);
+          }}
           className="p-1 hover:bg-red-100 rounded"
         >
           <TrashIcon className="h-4 w-4 text-red-600" />
         </button>
       </div>
+      <div
+        role={isEditable ? 'button' : undefined}
+        tabIndex={isEditable ? 0 : undefined}
+        onClick={isEditable ? handleCardClick : undefined}
+        onKeyDown={
+          isEditable
+            ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  handleCardClick();
+                }
+              }
+            : undefined
+        }
+        className={isEditable ? 'cursor-pointer outline-none' : ''}
+      >
       {(page.imageUrl || (page.type === 'video' && (page.posterUrl || page.videoUrl))) && (
         page.type === 'video' && (page.posterUrl || page.videoUrl) ? (
           page.posterUrl ? (
@@ -160,6 +187,7 @@ function SortablePageCard({
           {page.voiceClips.length} voice clip(s)
         </div>
       )}
+      </div>
     </div>
   );
 }
@@ -466,6 +494,10 @@ export function StorybookDetail({ storybookId }: StorybookDetailProps) {
     router.push(`/storybooks/${storybookId}/cinema`);
   };
 
+  const handleEditPage = (page: StorybookPage) => {
+    router.push(`/create?storybookId=${storybookId}&pageId=${page.id}`);
+  };
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
@@ -702,6 +734,7 @@ export function StorybookDetail({ storybookId }: StorybookDetailProps) {
                       page={page}
                       index={index}
                       onDelete={handleDeletePage}
+                      onEditPage={handleEditPage}
                     />
                   ))}
                 </div>

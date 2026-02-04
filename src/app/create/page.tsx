@@ -7,9 +7,10 @@ import { CinematicContainer } from '@/components/CinematicContainer';
 function CreateContent() {
   const searchParams = useSearchParams();
   const storybookId = searchParams.get('storybookId') || undefined;
+  const pageId = searchParams.get('pageId') || undefined;
   return (
     <main className="min-h-screen">
-      <CinematicContainer storybookId={storybookId} />
+      <CinematicContainer storybookId={storybookId} pageId={pageId} />
     </main>
   );
 }

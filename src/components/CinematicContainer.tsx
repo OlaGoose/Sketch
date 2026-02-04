@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useCinematicStore } from '@/lib/store/cinematic-store';
 import { AppState } from '@/types';
@@ -17,17 +17,19 @@ import { GalleryView } from './views/GalleryView';
 import { AccessRequiredView } from './views/AccessRequiredView';
 import { ZoomModal } from './ZoomModal';
 import { useDialog } from './DialogProvider';
-import { getStorybookById, saveStorybook, savePage } from '@/lib/db/cinematic-db';
+import { getStorybookById, getPageById, saveStorybook, savePage } from '@/lib/db/cinematic-db';
 
 interface CinematicContainerProps {
   storybookId?: string;
+  pageId?: string;
 }
 
-export function CinematicContainer({ storybookId }: CinematicContainerProps) {
+export function CinematicContainer({ storybookId, pageId }: CinematicContainerProps) {
   const router = useRouter();
   const dialog = useDialog();
   const bgAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const editingPageIdRef = useRef<string | null>(null);
 
   const appState = useCinematicStore((s) => s.appState);
   const hasApiKey = useCinematicStore((s) => s.hasApiKey);
@@ -67,6 +69,53 @@ export function CinematicContainer({ storybookId }: CinematicContainerProps) {
   const resetBlendAndVoiceAfterEdit = useCinematicStore(
     (s) => s.resetBlendAndVoiceAfterEdit
   );
+
+  useEffect(() => {
+    editingPageIdRef.current = pageId && storybookId ? pageId : null;
+    if (!storybookId || !pageId) return;
+    let cancelled = false;
+    getPageById(pageId).then((page) => {
+      if (cancelled || !page) return;
+      if (
+        (page.type !== 'image' && page.type !== 'audio-image') ||
+        !page.imageUrl
+      ) {
+        return;
+      }
+      const setCurrentImage = useCinematicStore.getState().setCurrentImage;
+      const setSelectedIdea = useCinematicStore.getState().setSelectedIdea;
+      const setEditPrompt = useCinematicStore.getState().setEditPrompt;
+      const setCurrentQuote = useCinematicStore.getState().setCurrentQuote;
+      const setAppState = useCinematicStore.getState().setAppState;
+      const setBgAudioUrl = useCinematicStore.getState().setBgAudioUrl;
+      const setBgAudioName = useCinematicStore.getState().setBgAudioName;
+      const setBgVolume = useCinematicStore.getState().setBgVolume;
+      const setBgPlayCount = useCinematicStore.getState().setBgPlayCount;
+      const setBgLoop = useCinematicStore.getState().setBgLoop;
+      const resetVoiceForNewImage = useCinematicStore.getState().resetVoiceForNewImage;
+
+      setCurrentImage(page.imageUrl);
+      setSelectedIdea({
+        id: page.id,
+        title: page.title || 'Untitled',
+        description: '',
+        technicalPrompt: page.prompt || page.title || '',
+      });
+      setEditPrompt(page.prompt || page.title || '');
+      setCurrentQuote(page.quote || '');
+      resetVoiceForNewImage();
+      (page.voiceClips ?? []).forEach((c) => addVoiceClip(c));
+      setBgAudioUrl(page.backgroundAudioUrl || null);
+      setBgAudioName(page.backgroundAudioUrl ? 'Restored' : 'None');
+      setBgVolume(page.bgAudioOptions?.volume ?? 1);
+      setBgPlayCount(page.bgAudioOptions?.playCount ?? 1);
+      setBgLoop(page.bgAudioOptions?.loop ?? true);
+      setAppState(AppState.EDITING);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [storybookId, pageId, addVoiceClip]);
 
   const handleGenerate = useCallback(
     async (idea: PromptIdea, customPrompt?: string) => {
@@ -375,13 +424,41 @@ export function CinematicContainer({ storybookId }: CinematicContainerProps) {
       })
     );
 
-    // If storybookId is provided, save as a page to that storybook
+    // If storybookId is provided, save as a page to that storybook (new or update)
     if (storybookId) {
       try {
         const storybook = await getStorybookById(storybookId);
         if (!storybook) {
           await dialog.alert('Storybook not found');
           return;
+        }
+
+        const editingId = editingPageIdRef.current;
+        if (editingId) {
+          const existing = await getPageById(editingId);
+          if (existing && existing.storybookId === storybookId) {
+            const hasAudio =
+              resolvedClips.length > 0 || !!state.bgAudioUrl;
+            const nextType: StorybookPage['type'] =
+              existing.type === 'image' && hasAudio ? 'audio-image' : existing.type;
+            const updatedPage: StorybookPage = {
+              ...existing,
+              type: nextType,
+              title: state.selectedIdea.title,
+              imageUrl: state.currentImage,
+              prompt: state.selectedIdea.title,
+              quote: state.currentQuote || undefined,
+              voiceClips: resolvedClips.length ? resolvedClips : undefined,
+              backgroundAudioUrl: state.bgAudioUrl || undefined,
+              bgAudioOptions:
+                state.bgAudioUrl && (state.bgVolume !== 1 || state.bgPlayCount !== 1 || !state.bgLoop)
+                  ? { volume: state.bgVolume, playCount: state.bgPlayCount, loop: state.bgLoop }
+                  : undefined,
+            };
+            await savePage(updatedPage);
+            router.push(`/storybooks/${storybookId}`);
+            return;
+          }
         }
 
         const newPage: StorybookPage = {
@@ -404,12 +481,11 @@ export function CinematicContainer({ storybookId }: CinematicContainerProps) {
 
         await savePage(newPage);
 
-        // Update storybook pageIds
         const updatedStorybook = {
           ...storybook,
           pageIds: [...storybook.pageIds, newPage.id],
           updatedAt: Date.now(),
-          coverImage: storybook.coverImage || state.currentImage, // Use first image as cover
+          coverImage: storybook.coverImage || state.currentImage,
         };
         await saveStorybook(updatedStorybook);
 
