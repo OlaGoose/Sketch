@@ -11,8 +11,12 @@ import {
   HandRaisedIcon,
   EyeIcon,
   EyeSlashIcon,
+  ChatBubbleLeftRightIcon,
 } from '@heroicons/react/24/outline';
-import { MicrophoneIcon as MicrophoneSolidIcon } from '@heroicons/react/24/solid';
+import {
+  MicrophoneIcon as MicrophoneSolidIcon,
+  ChatBubbleLeftRightIcon as ChatBubbleLeftRightSolidIcon,
+} from '@heroicons/react/24/solid';
 import { useCinematicStore } from '@/lib/store/cinematic-store';
 import type { VoiceOption, VoiceClip } from '@/types';
 import { VOICE_OPTIONS } from '@/types';
@@ -227,6 +231,26 @@ export function VoicePanel({
                   <EyeSlashIcon className="h-4 w-4" />
                 ) : (
                   <EyeIcon className="h-4 w-4" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  updateVoiceClip(clip.id, {
+                    speechBubbleVisible: !clip.speechBubbleVisible,
+                  })
+                }
+                className={`p-1 ${clip.speechBubbleVisible ? 'bg-gray-300' : 'hover:bg-gray-200'}`}
+                title={
+                  clip.speechBubbleVisible
+                    ? 'Hide text on image'
+                    : 'Show text on image'
+                }
+              >
+                {clip.speechBubbleVisible ? (
+                  <ChatBubbleLeftRightSolidIcon className="h-4 w-4" />
+                ) : (
+                  <ChatBubbleLeftRightIcon className="h-4 w-4" />
                 )}
               </button>
               <button

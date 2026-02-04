@@ -27,6 +27,10 @@ export interface VoiceClip {
   loop: boolean;
   /** when true, marker is hidden on image but clip still playable from panel */
   markerHidden?: boolean;
+  /** when true, show editable speech-bubble text box above the clip's marker on image */
+  speechBubbleVisible?: boolean;
+  /** text shown in the speech bubble (what the audio is saying) */
+  speechBubbleText?: string;
 }
 
 export interface GalleryItem {

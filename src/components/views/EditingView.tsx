@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useEffect } from 'react';
 import { MagnifyingGlassPlusIcon, SpeakerWaveIcon, PauseCircleIcon } from '@heroicons/react/24/outline';
 import { useCinematicStore } from '@/lib/store/cinematic-store';
 import type { VoiceClip } from '@/types';
@@ -9,6 +9,61 @@ import { MagicStudioPanel } from '../panels/MagicStudioPanel';
 import { RegeneratePanel } from '../panels/RegeneratePanel';
 import { VoicePanel } from '../panels/VoicePanel';
 import { AmbiencePanel } from '../panels/AmbiencePanel';
+
+/** Speech bubble above voice marker: white pill shape, rounded tail + dot, editable text, adaptive size */
+function SpeechBubble({
+  value,
+  onChange,
+  placeholder = 'Thoughts?',
+}: {
+  value: string;
+  onChange: (text: string) => void;
+  placeholder?: string;
+}) {
+  const divRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = divRef.current;
+    if (!el || el === document.activeElement) return;
+    if (el.innerText !== value) el.innerText = value;
+  }, [value]);
+
+  const handleInput = useCallback(() => {
+    const el = divRef.current;
+    if (el) onChange(el.innerText || '');
+  }, [onChange]);
+
+  return (
+    <div
+      className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 flex flex-col items-center pointer-events-auto w-max"
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <div className="relative flex flex-col items-center w-full">
+        <div className="bg-white rounded-[1.25rem] px-4 py-2.5 shadow-[0_2px_8px_rgba(0,0,0,0.08)] min-w-[72px] max-w-[240px] w-fit">
+          <div
+            ref={divRef}
+            contentEditable
+            suppressContentEditableWarning
+            className="text-[#5B5B5B] font-medium text-sm outline-none whitespace-pre-wrap break-words empty:before:content-[attr(data-placeholder)] empty:before:text-gray-400"
+            data-placeholder={placeholder}
+            style={{ caretColor: '#FF69B4' }}
+            onInput={handleInput}
+          />
+        </div>
+        {/* Tail pointing down */}
+        <div
+          className="w-0 h-0 border-l-[10px] border-l-transparent border-r-[10px] border-r-transparent border-t-[10px] border-t-white -mt-px"
+          style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.06))' }}
+        />
+        <div
+          className="absolute top-full w-2 h-2 bg-white rounded-full mt-[-5px]"
+          style={{ boxShadow: '0 1px 2px rgba(0,0,0,0.08)' }}
+        />
+      </div>
+    </div>
+  );
+}
 
 export function EditingView({
   isProcessing,
@@ -117,29 +172,42 @@ export function EditingView({
                       c.position != null && !c.markerHidden
                   )
                   .map((clip) => (
-                    <button
+                    <div
                       key={clip.id}
-                      type="button"
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData('application/voice-clip-id', clip.id);
-                        e.dataTransfer.effectAllowed = 'move';
-                      }}
-                      onClick={(e) => handleMarkerClick(e, clip)}
-                      className="absolute w-10 h-10 flex items-center justify-center bg-loft-yellow border-2 border-loft-black rounded-full hover:scale-110 active:scale-95 transition-transform touch-manipulation cursor-grab active:cursor-grabbing"
+                      className="absolute w-10 h-10"
                       style={{
                         left: `${clip.position.x}%`,
                         top: `${clip.position.y}%`,
                         transform: 'translate(-50%, -50%)',
                       }}
-                      title={playingClipId === clip.id ? 'Pause' : 'Play / drag to move'}
                     >
-                      {playingClipId === clip.id ? (
-                        <PauseCircleIcon className="h-5 w-5 text-loft-black pointer-events-none" />
-                      ) : (
-                        <SpeakerWaveIcon className="h-5 w-5 text-loft-black pointer-events-none" />
+                      {clip.speechBubbleVisible && (
+                        <SpeechBubble
+                          value={clip.speechBubbleText ?? ''}
+                          onChange={(text) =>
+                            updateVoiceClip(clip.id, { speechBubbleText: text })
+                          }
+                          placeholder="Thoughts?"
+                        />
                       )}
-                    </button>
+                      <button
+                        type="button"
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('application/voice-clip-id', clip.id);
+                          e.dataTransfer.effectAllowed = 'move';
+                        }}
+                        onClick={(e) => handleMarkerClick(e, clip)}
+                        className="absolute inset-0 w-10 h-10 flex items-center justify-center bg-loft-yellow border-2 border-loft-black rounded-full hover:scale-110 active:scale-95 transition-transform touch-manipulation cursor-grab active:cursor-grabbing"
+                        title={playingClipId === clip.id ? 'Pause' : 'Play / drag to move'}
+                      >
+                        {playingClipId === clip.id ? (
+                          <PauseCircleIcon className="h-5 w-5 text-loft-black pointer-events-none" />
+                        ) : (
+                          <SpeakerWaveIcon className="h-5 w-5 text-loft-black pointer-events-none" />
+                        )}
+                      </button>
+                    </div>
                   ))}
                 {voiceClips
                   .filter(
@@ -147,24 +215,37 @@ export function EditingView({
                       c.position != null && c.markerHidden === true
                   )
                   .map((clip) => (
-                    <button
+                    <div
                       key={clip.id}
-                      type="button"
-                      onClick={(e) => handleMarkerClick(e, clip)}
-                      className="absolute w-10 h-10 flex items-center justify-center rounded-full opacity-0 hover:opacity-20 bg-loft-yellow border-2 border-loft-black transition-opacity touch-manipulation"
+                      className="absolute w-10 h-10"
                       style={{
                         left: `${clip.position.x}%`,
                         top: `${clip.position.y}%`,
                         transform: 'translate(-50%, -50%)',
                       }}
-                      title={playingClipId === clip.id ? 'Pause' : 'Play'}
                     >
-                      {playingClipId === clip.id ? (
-                        <PauseCircleIcon className="h-5 w-5 text-loft-black pointer-events-none" />
-                      ) : (
-                        <SpeakerWaveIcon className="h-5 w-5 text-loft-black pointer-events-none" />
+                      {clip.speechBubbleVisible && (
+                        <SpeechBubble
+                          value={clip.speechBubbleText ?? ''}
+                          onChange={(text) =>
+                            updateVoiceClip(clip.id, { speechBubbleText: text })
+                          }
+                          placeholder="Thoughts?"
+                        />
                       )}
-                    </button>
+                      <button
+                        type="button"
+                        onClick={(e) => handleMarkerClick(e, clip)}
+                        className="absolute inset-0 w-10 h-10 flex items-center justify-center rounded-full opacity-0 hover:opacity-20 bg-loft-yellow border-2 border-loft-black transition-opacity touch-manipulation"
+                        title={playingClipId === clip.id ? 'Pause' : 'Play'}
+                      >
+                        {playingClipId === clip.id ? (
+                          <PauseCircleIcon className="h-5 w-5 text-loft-black pointer-events-none" />
+                        ) : (
+                          <SpeakerWaveIcon className="h-5 w-5 text-loft-black pointer-events-none" />
+                        )}
+                      </button>
+                    </div>
                   ))}
                 <button
                   type="button"
