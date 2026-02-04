@@ -68,3 +68,83 @@ export function createWavBlob(base64Data: string): Blob {
   const dataCopy = new Uint8Array(bytes);
   return new Blob([wavHeader, dataCopy], { type: 'audio/wav' });
 }
+
+const PCM_PREFIX = 'pcm-base64:';
+
+export function isPcmBase64(audioSrc: string): boolean {
+  return audioSrc.startsWith(PCM_PREFIX);
+}
+
+export function getPcmBase64(audioSrc: string): string | null {
+  return isPcmBase64(audioSrc) ? audioSrc.slice(PCM_PREFIX.length) : null;
+}
+
+export interface PlayOptions {
+  volume: number;
+  playCount: number;
+  loop: boolean;
+}
+
+/** Play a voice clip (URL or pcm-base64) with volume/playCount/loop. Returns stop function. */
+export function playVoiceClip(
+  audioSrc: string,
+  options: PlayOptions,
+  ctx: AudioContext,
+  onPlayingChange: (playing: boolean) => void
+): () => void {
+  const pcm = getPcmBase64(audioSrc);
+  const state = { stopped: false };
+  let currentSource: AudioBufferSourceNode | null = null;
+
+  const stop = () => {
+    state.stopped = true;
+    if (currentSource) try { currentSource.stop(); } catch { /* noop */ }
+    onPlayingChange(false);
+  };
+
+  const playOne = (buffer: AudioBuffer): Promise<void> =>
+    new Promise((resolve) => {
+      if (state.stopped) {
+        resolve();
+        return;
+      }
+      const source = ctx.createBufferSource();
+      currentSource = source;
+      source.buffer = buffer;
+      const gain = ctx.createGain();
+      gain.gain.value = Math.max(0, Math.min(1, options.volume));
+      source.connect(gain);
+      gain.connect(ctx.destination);
+      source.onended = () => {
+        currentSource = null;
+        resolve();
+      };
+      source.start();
+    });
+
+  const run = async () => {
+    onPlayingChange(true);
+    try {
+      let buffer: AudioBuffer;
+      if (pcm) {
+        buffer = await decodeAudioData(pcm, ctx);
+      } else {
+        const res = await fetch(audioSrc);
+        const arr = await res.arrayBuffer();
+        buffer = await ctx.decodeAudioData(arr);
+      }
+      if (state.stopped) return;
+      let count = 0;
+      const max = options.loop ? Infinity : Math.max(1, options.playCount);
+      while (count < max && !state.stopped) {
+        await playOne(buffer);
+        count++;
+      }
+    } finally {
+      if (!state.stopped) onPlayingChange(false);
+    }
+  };
+
+  run();
+  return stop;
+}

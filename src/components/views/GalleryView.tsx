@@ -56,7 +56,7 @@ export function GalleryView() {
                     )}
                   </div>
                   <div className="flex gap-1">
-                    {item.audioData && (
+                    {(item.audioData || (item.voiceClips && item.voiceClips.length > 0)) && (
                       <SpeakerWaveIcon className="h-3 w-3 text-white" />
                     )}
                     {item.backgroundAudioUrl && (

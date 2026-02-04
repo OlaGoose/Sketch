@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef, useEffect } from 'react';
 import { MusicalNoteIcon, PlayCircleIcon, PauseCircleIcon } from '@heroicons/react/24/outline';
 import { useCinematicStore } from '@/lib/store/cinematic-store';
 import type { AmbienceType } from '@/types';
@@ -24,6 +25,34 @@ export function AmbiencePanel({
   const setIsBgPlaying = useCinematicStore((s) => s.setIsBgPlaying);
   const setBgAudioName = useCinematicStore((s) => s.setBgAudioName);
   const setBgAudioUrl = useCinematicStore((s) => s.setBgAudioUrl);
+  const bgVolume = useCinematicStore((s) => s.bgVolume);
+  const bgPlayCount = useCinematicStore((s) => s.bgPlayCount);
+  const bgLoop = useCinematicStore((s) => s.bgLoop);
+  const setBgVolume = useCinematicStore((s) => s.setBgVolume);
+  const setBgPlayCount = useCinematicStore((s) => s.setBgPlayCount);
+  const setBgLoop = useCinematicStore((s) => s.setBgLoop);
+  const playCountRef = useRef(0);
+
+  useEffect(() => {
+    const el = audioRef.current;
+    if (el) el.volume = Math.max(0, Math.min(1, bgVolume));
+  }, [audioRef, bgVolume]);
+
+  const handleEnded = () => {
+    const state = useCinematicStore.getState();
+    playCountRef.current += 1;
+    if (state.bgLoop) {
+      audioRef.current?.play().catch(() => {});
+    } else if (playCountRef.current < state.bgPlayCount) {
+      audioRef.current?.play().catch(() => {});
+    } else {
+      state.setIsBgPlaying(false);
+    }
+  };
+
+  const handlePlay = () => {
+    playCountRef.current = 0;
+  };
 
   const handleBgMusicUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -86,29 +115,69 @@ export function AmbiencePanel({
         </button>
 
         {(bgAudioUrl || bgAudioName !== 'None') && (
-          <div className="mt-2 flex items-center justify-between bg-gray-100 p-2 border-l-4 border-loft-yellow">
-            <span
-              className="text-xs font-mono truncate max-w-[100px]"
-              title={bgAudioName}
-            >
-              {bgAudioName}
-            </span>
-            <button onClick={onToggleBgAudio}>
-              {isBgPlaying ? (
-                <PauseCircleIcon className="h-5 w-5" />
-              ) : (
-                <PlayCircleIcon className="h-5 w-5" />
-              )}
-            </button>
+          <div className="mt-2 flex flex-col gap-2 bg-gray-100 p-2 border-l-4 border-loft-yellow">
+            <div className="flex items-center justify-between">
+              <span
+                className="text-xs font-mono truncate max-w-[100px]"
+                title={bgAudioName}
+              >
+                {bgAudioName}
+              </span>
+              <button onClick={onToggleBgAudio}>
+                {isBgPlaying ? (
+                  <PauseCircleIcon className="h-5 w-5" />
+                ) : (
+                  <PlayCircleIcon className="h-5 w-5" />
+                )}
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <label className="flex items-center gap-1">
+                Vol
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.1}
+                  value={bgVolume}
+                  onChange={(e) => setBgVolume(parseFloat(e.target.value))}
+                  className="w-14"
+                />
+              </label>
+              <label className="flex items-center gap-1">
+                Count
+                <input
+                  type="number"
+                  min={1}
+                  max={99}
+                  value={bgPlayCount}
+                  onChange={(e) =>
+                    setBgPlayCount(Math.max(1, parseInt(e.target.value, 10) || 1))
+                  }
+                  className="w-10 border border-gray-200 px-1"
+                />
+              </label>
+              <label className="flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  checked={bgLoop}
+                  onChange={(e) => setBgLoop(e.target.checked)}
+                />
+                Loop
+              </label>
+            </div>
           </div>
         )}
         <audio
           ref={audioRef}
           src={bgAudioUrl || undefined}
-          loop
           className="hidden"
-          onPlay={() => setIsBgPlaying(true)}
+          onPlay={() => {
+            handlePlay();
+            setIsBgPlaying(true);
+          }}
           onPause={() => setIsBgPlaying(false)}
+          onEnded={handleEnded}
         />
       </div>
     </div>

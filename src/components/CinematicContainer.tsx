@@ -4,7 +4,8 @@ import { useRef, useCallback } from 'react';
 import { useCinematicStore } from '@/lib/store/cinematic-store';
 import { AppState } from '@/types';
 import type { PromptIdea } from '@/types';
-import { decodeAudioData } from '@/utils/audio';
+import { playVoiceClip } from '@/utils/audio';
+import type { VoiceClip } from '@/types';
 import { Header } from './Header';
 import { ParticleBackground } from './ParticleBackground';
 import { UploadView } from './views/UploadView';
@@ -49,7 +50,8 @@ export function CinematicContainer() {
   const setBlendImage = useCinematicStore((s) => s.setBlendImage);
   const setVoiceName = useCinematicStore((s) => s.setVoiceName);
   const setVoiceReason = useCinematicStore((s) => s.setVoiceReason);
-  const setCurrentAudioData = useCinematicStore((s) => s.setCurrentAudioData);
+  const addVoiceClip = useCinematicStore((s) => s.addVoiceClip);
+  const setIsPlayingAudio = useCinematicStore((s) => s.setIsPlayingAudio);
   const setBgAudioUrl = useCinematicStore((s) => s.setBgAudioUrl);
   const setBgAudioName = useCinematicStore((s) => s.setBgAudioName);
   const addGalleryItem = useCinematicStore((s) => s.addGalleryItem);
@@ -203,7 +205,14 @@ export function CinematicContainer() {
       });
       if (!speechRes.ok) throw new Error('Speech generation failed');
       const { audioData, usage } = await speechRes.json();
-      setCurrentAudioData(audioData);
+      addVoiceClip({
+        id: `clip-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        name: currentQuote.slice(0, 30) || 'Speech',
+        audioSrc: `pcm-base64:${audioData}`,
+        volume: 1,
+        playCount: 1,
+        loop: false,
+      });
       setTokenUsage(usage);
       setIsProcessing(false);
     } catch (err) {
@@ -220,33 +229,49 @@ export function CinematicContainer() {
     setLoadingMsg,
     setVoiceName,
     setVoiceReason,
-    setCurrentAudioData,
+    addVoiceClip,
     setTokenUsage,
   ]);
 
-  const handlePlayVoice = useCallback(async () => {
-    const currentAudioData = useCinematicStore.getState().currentAudioData;
-    if (!currentAudioData) return;
-    if (!audioContextRef.current) {
-      audioContextRef.current = new (window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext })
-          .webkitAudioContext)({ sampleRate: 24000 });
+  const voiceStopRef = useRef<(() => void) | null>(null);
+  const setPlayingClipId = useCinematicStore((s) => s.setPlayingClipId);
+
+  const handlePlayClip = useCallback(
+    (clip: VoiceClip) => {
+      if (!clip.audioSrc) return;
+      if (voiceStopRef.current) {
+        voiceStopRef.current();
+        voiceStopRef.current = null;
+      }
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext })
+            .webkitAudioContext)({ sampleRate: 24000 });
+      }
+      const ctx = audioContextRef.current;
+      const onPlayingChange = (playing: boolean) => {
+        useCinematicStore.getState().setIsPlayingAudio(playing);
+        if (!playing) useCinematicStore.getState().setPlayingClipId(null);
+      };
+      setPlayingClipId(clip.id);
+      voiceStopRef.current = playVoiceClip(
+        clip.audioSrc,
+        { volume: clip.volume, playCount: clip.playCount, loop: clip.loop },
+        ctx,
+        onPlayingChange
+      );
+    },
+    [setPlayingClipId]
+  );
+
+  const handleStopClip = useCallback(() => {
+    if (voiceStopRef.current) {
+      voiceStopRef.current();
+      voiceStopRef.current = null;
     }
-    const ctx = audioContextRef.current;
-    try {
-      useCinematicStore.getState().setIsPlayingAudio(true);
-      const buffer = await decodeAudioData(currentAudioData, ctx);
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      source.connect(ctx.destination);
-      source.onended = () =>
-        useCinematicStore.getState().setIsPlayingAudio(false);
-      source.start();
-    } catch (e) {
-      console.error('Audio playback error', e);
-      useCinematicStore.getState().setIsPlayingAudio(false);
-    }
-  }, []);
+    setPlayingClipId(null);
+    useCinematicStore.getState().setIsPlayingAudio(false);
+  }, [setPlayingClipId]);
 
   const handleGenerateAmbience = useCallback(async () => {
     if (!currentImage) return;
@@ -320,20 +345,40 @@ export function CinematicContainer() {
     }
   }, []);
 
-  const handleSaveToGallery = useCallback(() => {
+  const handleSaveToGallery = useCallback(async () => {
     const state = useCinematicStore.getState();
-    if (state.currentImage && state.selectedIdea) {
-      addGalleryItem({
-        id: Date.now().toString(),
-        imageUrl: state.currentImage,
-        prompt: state.selectedIdea.title,
-        timestamp: Date.now(),
-        quote: state.currentQuote || undefined,
-        audioData: state.currentAudioData || undefined,
-        backgroundAudioUrl: state.bgAudioUrl || undefined,
-      });
-      setAppState(AppState.GALLERY);
-    }
+    if (!state.currentImage || !state.selectedIdea) return;
+    const voiceClips = state.voiceClips;
+    const resolvedClips = await Promise.all(
+      voiceClips.map(async (c) => {
+        if (c.audioSrc.startsWith('blob:')) {
+          const res = await fetch(c.audioSrc);
+          const blob = await res.blob();
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const r = new FileReader();
+            r.onload = () => resolve(r.result as string);
+            r.onerror = reject;
+            r.readAsDataURL(blob);
+          });
+          return { ...c, audioSrc: dataUrl };
+        }
+        return c;
+      })
+    );
+    addGalleryItem({
+      id: Date.now().toString(),
+      imageUrl: state.currentImage,
+      prompt: state.selectedIdea.title,
+      timestamp: Date.now(),
+      quote: state.currentQuote || undefined,
+      voiceClips: resolvedClips.length ? resolvedClips : undefined,
+      backgroundAudioUrl: state.bgAudioUrl || undefined,
+      bgAudioOptions:
+        state.bgAudioUrl && (state.bgVolume !== 1 || state.bgPlayCount !== 1 || !state.bgLoop)
+          ? { volume: state.bgVolume, playCount: state.bgPlayCount, loop: state.bgLoop }
+          : undefined,
+    });
+    setAppState(AppState.GALLERY);
   }, [addGalleryItem, setAppState]);
 
   if (!hasApiKey) {
@@ -363,7 +408,8 @@ export function CinematicContainer() {
             onTextEdit={handleTextEdit}
             onRegenerate={handleRegenerate}
             onGenerateSpeech={handleGenerateSpeech}
-            onPlayVoice={handlePlayVoice}
+            onPlayClip={handlePlayClip}
+            onStopClip={handleStopClip}
             onGenerateAmbience={handleGenerateAmbience}
             onToggleBgAudio={handleToggleBgAudio}
             onSaveToGallery={handleSaveToGallery}
@@ -374,7 +420,7 @@ export function CinematicContainer() {
       </main>
 
       {appState === AppState.EDITING && (
-        <ZoomModal />
+        <ZoomModal onPlayClip={handlePlayClip} onStopClip={handleStopClip} />
       )}
     </div>
   );

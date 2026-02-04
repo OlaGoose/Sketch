@@ -14,6 +14,8 @@ import type {
   ImageSize,
   VoiceOption,
   AmbienceType,
+  VoiceClip,
+  AudioPlayOptions,
 } from '@/types';
 
 interface CinematicStore {
@@ -37,11 +39,15 @@ interface CinematicStore {
   currentQuote: string;
   voiceName: string;
   voiceReason: string;
-  currentAudioData: string | null;
+  voiceClips: VoiceClip[];
   isPlayingAudio: boolean;
+  playingClipId: string | null;
   bgAudioUrl: string | null;
   bgAudioName: string;
   isBgPlaying: boolean;
+  bgVolume: number;
+  bgPlayCount: number;
+  bgLoop: boolean;
   ambienceType: AmbienceType;
   temperature: number;
   selectedVoice: VoiceOption;
@@ -67,12 +73,19 @@ interface CinematicStore {
   setCurrentQuote: (s: string) => void;
   setVoiceName: (s: string) => void;
   setVoiceReason: (s: string) => void;
-  setCurrentAudioData: (s: string | null) => void;
   setIsPlayingAudio: (v: boolean) => void;
+  setPlayingClipId: (id: string | null) => void;
   setBgAudioUrl: (s: string | null) => void;
   setBgAudioName: (s: string) => void;
   setIsBgPlaying: (v: boolean) => void;
+  setBgVolume: (v: number) => void;
+  setBgPlayCount: (n: number) => void;
+  setBgLoop: (v: boolean) => void;
   setAmbienceType: (t: AmbienceType) => void;
+  addVoiceClip: (clip: VoiceClip) => void;
+  removeVoiceClip: (id: string) => void;
+  updateVoiceClip: (id: string, patch: Partial<VoiceClip>) => void;
+  setVoiceClipPosition: (id: string, position: { x: number; y: number }) => void;
   setTemperature: (t: number) => void;
   setSelectedVoice: (v: VoiceOption) => void;
 
@@ -107,11 +120,15 @@ export const useCinematicStore = create<CinematicStore>()(
       currentQuote: '',
       voiceName: '',
       voiceReason: '',
-      currentAudioData: null,
+      voiceClips: [],
       isPlayingAudio: false,
+      playingClipId: null,
       bgAudioUrl: null,
       bgAudioName: 'None',
       isBgPlaying: false,
+      bgVolume: 1,
+      bgPlayCount: 1,
+      bgLoop: true,
       ambienceType: 'narration',
       temperature: 0.5,
       selectedVoice: 'Auto',
@@ -138,12 +155,33 @@ export const useCinematicStore = create<CinematicStore>()(
       setCurrentQuote: (currentQuote) => set({ currentQuote }),
       setVoiceName: (voiceName) => set({ voiceName }),
       setVoiceReason: (voiceReason) => set({ voiceReason }),
-      setCurrentAudioData: (currentAudioData) => set({ currentAudioData }),
       setIsPlayingAudio: (isPlayingAudio) => set({ isPlayingAudio }),
+      setPlayingClipId: (playingClipId) => set({ playingClipId }),
       setBgAudioUrl: (bgAudioUrl) => set({ bgAudioUrl }),
       setBgAudioName: (bgAudioName) => set({ bgAudioName }),
       setIsBgPlaying: (isBgPlaying) => set({ isBgPlaying }),
+      setBgVolume: (bgVolume) => set({ bgVolume }),
+      setBgPlayCount: (bgPlayCount) => set({ bgPlayCount }),
+      setBgLoop: (bgLoop) => set({ bgLoop }),
       setAmbienceType: (ambienceType) => set({ ambienceType }),
+      addVoiceClip: (clip) =>
+        set((state) => ({ voiceClips: [...state.voiceClips, clip] })),
+      removeVoiceClip: (id) =>
+        set((state) => ({
+          voiceClips: state.voiceClips.filter((c) => c.id !== id),
+        })),
+      updateVoiceClip: (id, patch) =>
+        set((state) => ({
+          voiceClips: state.voiceClips.map((c) =>
+            c.id === id ? { ...c, ...patch } : c
+          ),
+        })),
+      setVoiceClipPosition: (id, position) =>
+        set((state) => ({
+          voiceClips: state.voiceClips.map((c) =>
+            c.id === id ? { ...c, position } : c
+          ),
+        })),
       setTemperature: (temperature) => set({ temperature }),
       setSelectedVoice: (selectedVoice) => set({ selectedVoice }),
 
@@ -159,7 +197,8 @@ export const useCinematicStore = create<CinematicStore>()(
           currentQuote: '',
           voiceName: '',
           voiceReason: '',
-          currentAudioData: null,
+          voiceClips: [],
+          playingClipId: null,
         }),
 
       resetBlendAndVoiceAfterEdit: () =>
@@ -167,7 +206,7 @@ export const useCinematicStore = create<CinematicStore>()(
           blendImage: null,
           textEditInstruction: '',
           currentQuote: '',
-          currentAudioData: null,
+          voiceClips: [],
         }),
 
       loadFromGallery: (item) =>
@@ -181,10 +220,21 @@ export const useCinematicStore = create<CinematicStore>()(
           },
           editPrompt: item.prompt,
           currentQuote: item.quote || '',
-          currentAudioData: item.audioData || null,
+          voiceClips: item.voiceClips ?? (item.audioData
+            ? [{
+                id: `legacy-${item.id}`,
+                audioSrc: `pcm-base64:${item.audioData}`,
+                volume: 1,
+                playCount: 1,
+                loop: false,
+              }]
+            : []),
           bgAudioUrl: item.backgroundAudioUrl || null,
           bgAudioName: item.backgroundAudioUrl ? 'Restored Audio' : 'None',
           isBgPlaying: false,
+          bgVolume: item.bgAudioOptions?.volume ?? 1,
+          bgPlayCount: item.bgAudioOptions?.playCount ?? 1,
+          bgLoop: item.bgAudioOptions?.loop ?? true,
           appState: AppState.EDITING,
         }),
     }),

@@ -9,6 +9,26 @@ export interface PromptIdea {
   technicalPrompt: string;
 }
 
+/** Shared options for any audio (voice clip or ambience). */
+export interface AudioPlayOptions {
+  volume: number;
+  playCount: number;
+  loop: boolean;
+}
+
+export interface VoiceClip {
+  id: string;
+  name?: string;
+  /** data URL or blob URL */
+  audioSrc: string;
+  position?: { x: number; y: number };
+  volume: number;
+  playCount: number;
+  loop: boolean;
+  /** when true, marker is hidden on image but clip still playable from panel */
+  markerHidden?: boolean;
+}
+
 export interface GalleryItem {
   id: string;
   imageUrl: string;
@@ -17,6 +37,8 @@ export interface GalleryItem {
   quote?: string;
   audioData?: string;
   backgroundAudioUrl?: string;
+  voiceClips?: VoiceClip[];
+  bgAudioOptions?: AudioPlayOptions;
 }
 
 export enum AppState {
