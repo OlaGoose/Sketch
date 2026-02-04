@@ -4,6 +4,7 @@ import { useCallback, useRef, useState, useEffect } from 'react';
 import { XMarkIcon, SpeakerWaveIcon, PauseCircleIcon } from '@heroicons/react/24/outline';
 import { useCinematicStore } from '@/lib/store/cinematic-store';
 import type { VoiceClip } from '@/types';
+import { SpeechBubble } from './SpeechBubble';
 
 export function ZoomModal({
   onPlayClip,
@@ -16,6 +17,7 @@ export function ZoomModal({
   const isZoomed = useCinematicStore((s) => s.isZoomed);
   const setIsZoomed = useCinematicStore((s) => s.setIsZoomed);
   const voiceClips = useCinematicStore((s) => s.voiceClips);
+  const updateVoiceClip = useCinematicStore((s) => s.updateVoiceClip);
   const playingClipId = useCinematicStore((s) => s.playingClipId);
   const imgRef = useRef<HTMLImageElement>(null);
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
@@ -60,6 +62,48 @@ export function ZoomModal({
   const clipsWithPosition = voiceClips.filter(
     (c): c is VoiceClip & { position: { x: number; y: number } } => c.position != null
   );
+  const visibleClips = clipsWithPosition.filter((c) => !c.markerHidden);
+  const hiddenClips = clipsWithPosition.filter((c) => c.markerHidden === true);
+
+  const renderMarker = (
+    clip: VoiceClip & { position: { x: number; y: number } },
+    visible: boolean
+  ) => (
+    <div
+      key={clip.id}
+      className="absolute w-10 h-10"
+      style={{
+        left: `${clip.position.x}%`,
+        top: `${clip.position.y}%`,
+        transform: 'translate(-50%, -50%)',
+      }}
+    >
+      {clip.speechBubbleVisible && (
+        <SpeechBubble
+          value={clip.speechBubbleText ?? ''}
+          onChange={(text) => updateVoiceClip(clip.id, { speechBubbleText: text })}
+          placeholder="Thoughts?"
+        />
+      )}
+      <button
+        type="button"
+        onClick={(e) => handleMarkerClick(e, clip)}
+        className={`absolute inset-0 w-10 h-10 flex items-center justify-center rounded-full border-2 border-loft-black transition-opacity touch-manipulation ${
+          visible
+            ? 'bg-loft-yellow hover:scale-110 active:scale-95 cursor-pointer'
+            : 'opacity-0 hover:opacity-20 bg-loft-yellow cursor-pointer'
+        }`}
+        style={visible ? {} : undefined}
+        title={playingClipId === clip.id ? 'Pause' : 'Play'}
+      >
+        {playingClipId === clip.id ? (
+          <PauseCircleIcon className="h-5 w-5 text-loft-black pointer-events-none" />
+        ) : (
+          <SpeakerWaveIcon className="h-5 w-5 text-loft-black pointer-events-none" />
+        )}
+      </button>
+    </div>
+  );
 
   return (
     <div
@@ -84,26 +128,8 @@ export function ZoomModal({
               className="relative bg-transparent pointer-events-auto"
               style={{ width: imgSize.w, height: imgSize.h }}
             >
-              {clipsWithPosition.map((clip) => (
-                <button
-                  key={clip.id}
-                  type="button"
-                  onClick={(e) => handleMarkerClick(e, clip)}
-                  className="absolute z-[1] w-10 h-10 flex items-center justify-center rounded-full opacity-0 hover:opacity-20 bg-loft-yellow border-2 border-loft-black transition-opacity touch-manipulation cursor-pointer"
-                  style={{
-                    left: `${clip.position.x}%`,
-                    top: `${clip.position.y}%`,
-                    transform: 'translate(-50%, -50%)',
-                  }}
-                  title={playingClipId === clip.id ? 'Pause' : 'Play'}
-                >
-                  {playingClipId === clip.id ? (
-                    <PauseCircleIcon className="h-5 w-5 text-loft-black pointer-events-none" />
-                  ) : (
-                    <SpeakerWaveIcon className="h-5 w-5 text-loft-black pointer-events-none" />
-                  )}
-                </button>
-              ))}
+              {visibleClips.map((clip) => renderMarker(clip, true))}
+              {hiddenClips.map((clip) => renderMarker(clip, false))}
             </div>
           </div>
         )}

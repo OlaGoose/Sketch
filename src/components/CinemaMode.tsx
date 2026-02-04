@@ -36,6 +36,10 @@ export function CinemaMode({ storybookId }: CinemaModeProps) {
   const voiceStopRef = useRef<(() => void) | null>(null);
   const bgAudioRef = useRef<HTMLAudioElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const isAutoPlayingRef = useRef(isAutoPlaying);
+  const currentPageRef = useRef<StorybookPage | undefined>(undefined);
+  const autoPlayStartedForPageRef = useRef<number>(-1);
+  const handleNextRef = useRef((): void => {});
 
   useEffect(() => {
     loadData();
@@ -51,6 +55,8 @@ export function CinemaMode({ storybookId }: CinemaModeProps) {
 
   const currentPage = pages[currentPageIndex];
   const isVideoPage = currentPage?.type === 'video';
+  isAutoPlayingRef.current = isAutoPlaying;
+  currentPageRef.current = currentPage;
 
   useEffect(() => {
     if (!isAutoPlaying || isPlayingAudio) {
@@ -59,9 +65,8 @@ export function CinemaMode({ storybookId }: CinemaModeProps) {
       }
       return;
     }
-    if (isVideoPage) {
-      return;
-    }
+    if (isVideoPage) return;
+    if (currentPage?.type === 'audio-image' && (currentPage.voiceClips?.length ?? 0) > 0) return;
     autoPlayTimerRef.current = setTimeout(() => {
       handleNext();
     }, 5000);
@@ -70,7 +75,7 @@ export function CinemaMode({ storybookId }: CinemaModeProps) {
         clearTimeout(autoPlayTimerRef.current);
       }
     };
-  }, [isAutoPlaying, currentPageIndex, isPlayingAudio, isVideoPage]);
+  }, [isAutoPlaying, currentPageIndex, isPlayingAudio, isVideoPage, currentPage?.type, currentPage?.voiceClips?.length]);
 
   useEffect(() => {
     if (!isVideoPage || !isAutoPlaying || !videoRef.current) return;
@@ -104,14 +109,15 @@ export function CinemaMode({ storybookId }: CinemaModeProps) {
     }
   };
 
-  const handleNext = () => {
+  const handleNext = useCallback(() => {
     if (currentPageIndex < pages.length - 1) {
       setCurrentPageIndex(currentPageIndex + 1);
       stopAllAudio();
     } else {
       setIsAutoPlaying(false);
     }
-  };
+  }, [currentPageIndex, pages.length]);
+  handleNextRef.current = handleNext;
 
   const handleToggleAutoPlay = () => {
     setIsAutoPlaying(!isAutoPlaying);
@@ -133,6 +139,59 @@ export function CinemaMode({ storybookId }: CinemaModeProps) {
     setIsPlayingAudio(false);
     setPlayingClipId(null);
   };
+
+  const playClipAtIndex = useCallback((index: number) => {
+    const page = currentPageRef.current;
+    const clips = page?.voiceClips;
+    if (!clips || index >= clips.length) {
+      setTimeout(() => handleNextRef.current(), 500);
+      return;
+    }
+    const clip = clips[index];
+    if (!clip.audioSrc) {
+      playClipAtIndex(index + 1);
+      return;
+    }
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext ||
+        (window as any).webkitAudioContext)({ sampleRate: 24000 });
+    }
+    if (voiceStopRef.current) {
+      voiceStopRef.current();
+      voiceStopRef.current = null;
+    }
+    setPlayingClipId(clip.id);
+    setIsPlayingAudio(true);
+    voiceStopRef.current = playVoiceClip(
+      clip.audioSrc,
+      { volume: clip.volume, playCount: clip.playCount, loop: clip.loop },
+      audioContextRef.current,
+      (playing) => {
+        setIsPlayingAudio(playing);
+        if (!playing) setPlayingClipId(null);
+        if (!playing && isAutoPlayingRef.current && currentPageRef.current?.type === 'audio-image') {
+          const nextIndex = index + 1;
+          const nextClips = currentPageRef.current.voiceClips ?? [];
+          if (nextIndex < nextClips.length) {
+            playClipAtIndex(nextIndex);
+          } else {
+            setTimeout(() => handleNextRef.current(), 500);
+          }
+        }
+      }
+    );
+  }, []);
+
+  useEffect(() => {
+    if (currentPage?.type !== 'audio-image') {
+      autoPlayStartedForPageRef.current = -1;
+      return;
+    }
+    if (!isAutoPlaying || !currentPage.voiceClips?.length || isPlayingAudio) return;
+    if (autoPlayStartedForPageRef.current === currentPageIndex) return;
+    autoPlayStartedForPageRef.current = currentPageIndex;
+    playClipAtIndex(0);
+  }, [currentPageIndex, currentPage?.type, currentPage?.voiceClips?.length, isAutoPlaying, isPlayingAudio, playClipAtIndex]);
 
   const handlePlayVoiceClip = useCallback((clip: VoiceClip) => {
     if (!clip.audioSrc) return;

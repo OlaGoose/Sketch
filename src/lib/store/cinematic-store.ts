@@ -93,6 +93,7 @@ interface CinematicStore {
   removeVoiceClip: (id: string) => void;
   updateVoiceClip: (id: string, patch: Partial<VoiceClip>) => void;
   setVoiceClipPosition: (id: string, position: { x: number; y: number }) => void;
+  reorderVoiceClips: (draggedId: string, toIndex: number) => void;
   setTemperature: (t: number) => void;
   setSelectedVoice: (v: VoiceOption) => void;
 
@@ -198,6 +199,15 @@ export const useCinematicStore = create<CinematicStore>()(
             c.id === id ? { ...c, position } : c
           ),
         })),
+      reorderVoiceClips: (draggedId, toIndex) =>
+        set((state) => {
+          const list = [...state.voiceClips];
+          const fromIndex = list.findIndex((c) => c.id === draggedId);
+          if (fromIndex === -1 || fromIndex === toIndex) return state;
+          const [removed] = list.splice(fromIndex, 1);
+          list.splice(toIndex, 0, removed);
+          return { voiceClips: list };
+        }),
       setTemperature: (temperature) => set({ temperature }),
       setSelectedVoice: (selectedVoice) => set({ selectedVoice }),
 

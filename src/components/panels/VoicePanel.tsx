@@ -61,6 +61,7 @@ export function VoicePanel({
   const addVoiceClip = useCinematicStore((s) => s.addVoiceClip);
   const removeVoiceClip = useCinematicStore((s) => s.removeVoiceClip);
   const updateVoiceClip = useCinematicStore((s) => s.updateVoiceClip);
+  const reorderVoiceClips = useCinematicStore((s) => s.reorderVoiceClips);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const [isRecording, setIsRecording] = useState(false);
@@ -183,7 +184,7 @@ export function VoicePanel({
         )}
       </div>
 
-      <p className="text-xs text-gray-500 mb-2">Drag clip to image to pin. Tap on image to play.</p>
+      <p className="text-xs text-gray-500 mb-2">Drag clip to image to pin; drag in list to reorder (top plays first). Tap on image to play.</p>
 
       <ul className="space-y-2 max-h-48 overflow-y-auto">
         {voiceClips.map((clip) => (
@@ -193,6 +194,18 @@ export function VoicePanel({
             onDragStart={(e) => {
               e.dataTransfer.setData('application/voice-clip-id', clip.id);
               e.dataTransfer.effectAllowed = 'move';
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              const draggedId = e.dataTransfer.getData('application/voice-clip-id');
+              if (!draggedId || draggedId === clip.id) return;
+              const toIndex = voiceClips.findIndex((c) => c.id === clip.id);
+              if (toIndex === -1) return;
+              reorderVoiceClips(draggedId, toIndex);
             }}
             className="bg-gray-100 border-l-4 border-loft-yellow p-2 flex flex-col gap-1"
           >
