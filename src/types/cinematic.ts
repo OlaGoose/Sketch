@@ -96,6 +96,8 @@ export interface StorybookPage {
 
   // Video
   videoUrl?: string;
+  /** Poster/thumbnail image (first frame), data URL or URL */
+  posterUrl?: string;
 }
 
 export interface TokenUsage {

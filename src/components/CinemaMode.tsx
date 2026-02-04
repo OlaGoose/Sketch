@@ -35,6 +35,7 @@ export function CinemaMode({ storybookId }: CinemaModeProps) {
   const audioContextRef = useRef<AudioContext | null>(null);
   const voiceStopRef = useRef<(() => void) | null>(null);
   const bgAudioRef = useRef<HTMLAudioElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     loadData();
@@ -48,20 +49,33 @@ export function CinemaMode({ storybookId }: CinemaModeProps) {
     };
   }, [storybookId]);
 
+  const currentPage = pages[currentPageIndex];
+  const isVideoPage = currentPage?.type === 'video';
+
   useEffect(() => {
-    if (isAutoPlaying && !isPlayingAudio) {
-      autoPlayTimerRef.current = setTimeout(() => {
-        handleNext();
-      }, 5000); // 5 seconds per page
-    } else if (autoPlayTimerRef.current) {
-      clearTimeout(autoPlayTimerRef.current);
+    if (!isAutoPlaying || isPlayingAudio) {
+      if (autoPlayTimerRef.current) {
+        clearTimeout(autoPlayTimerRef.current);
+      }
+      return;
     }
+    if (isVideoPage) {
+      return;
+    }
+    autoPlayTimerRef.current = setTimeout(() => {
+      handleNext();
+    }, 5000);
     return () => {
       if (autoPlayTimerRef.current) {
         clearTimeout(autoPlayTimerRef.current);
       }
     };
-  }, [isAutoPlaying, currentPageIndex, isPlayingAudio]);
+  }, [isAutoPlaying, currentPageIndex, isPlayingAudio, isVideoPage]);
+
+  useEffect(() => {
+    if (!isVideoPage || !isAutoPlaying || !videoRef.current) return;
+    videoRef.current.play().catch(() => {});
+  }, [currentPageIndex, isVideoPage, isAutoPlaying]);
 
   const loadData = async () => {
     try {
@@ -191,8 +205,6 @@ export function CinemaMode({ storybookId }: CinemaModeProps) {
     );
   }
 
-  const currentPage = pages[currentPageIndex];
-
   return (
     <div className="fixed inset-0 bg-black z-50 flex flex-col">
       {/* Header */}
@@ -316,9 +328,12 @@ export function CinemaMode({ storybookId }: CinemaModeProps) {
         {currentPage.type === 'video' && currentPage.videoUrl && (
           <div className="max-w-6xl w-full">
             <video
+              ref={videoRef}
               src={currentPage.videoUrl}
-              controls
-              className="w-full h-auto max-h-[80vh] border-4 border-loft-yellow"
+              className="w-full h-auto max-h-[80vh]"
+              onEnded={() => {
+                if (isAutoPlaying) handleNext();
+              }}
             />
             {currentPage.title && (
               <p className="text-white text-center mt-4 text-xl">

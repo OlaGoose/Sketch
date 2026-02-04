@@ -1,10 +1,9 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeftIcon,
-  PlusIcon,
   PlayIcon,
   PencilIcon,
   TrashIcon,
@@ -13,6 +12,7 @@ import {
   GlobeAltIcon,
   VideoCameraIcon,
   SpeakerWaveIcon,
+  FolderIcon,
 } from '@heroicons/react/24/outline';
 import {
   getStorybookById,
@@ -25,12 +25,14 @@ import {
 import type { Storybook, StorybookPage } from '@/types';
 import {
   DndContext,
+  DragOverlay,
   closestCenter,
   KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragStartEvent,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -41,6 +43,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { useDialog } from './DialogProvider';
 import { AddMediaPageModal, type AddMediaItem } from './ui/AddMediaPageModal';
+import { getVideoPosterUrl } from '@/utils/video-poster';
 import { Header } from './Header';
 
 interface StorybookDetailProps {
@@ -63,6 +66,10 @@ const PAGE_TYPE_LABELS = {
   video: 'Video',
 };
 
+const FOLDER_IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg']);
+const FOLDER_VIDEO_EXTS = new Set(['mp4', 'webm', 'mov', 'avi', 'mkv']);
+const FOLDER_TEXT_EXTS = new Set(['txt', 'md']);
+
 function SortablePageCard({
   page,
   index,
@@ -80,16 +87,16 @@ function SortablePageCard({
     transition,
     isDragging,
   } = useSortable({ id: page.id });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
+  const style =
+    isDragging
+      ? undefined
+      : { transform: CSS.Transform.toString(transform), transition };
   const Icon = PAGE_TYPE_ICONS[page.type];
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`bg-white border-2 border-loft-black shadow-[4px_4px_0px_#000] p-4 hover:shadow-[6px_6px_0px_#000] transition-all ${isDragging ? 'opacity-50 z-10' : ''}`}
+      className={`bg-white border-2 border-loft-black shadow-[4px_4px_0px_#000] p-4 hover:shadow-[6px_6px_0px_#000] transition-all ${isDragging ? 'opacity-0' : ''}`}
     >
       <div className="flex justify-between items-start mb-3">
         <div
@@ -110,12 +117,30 @@ function SortablePageCard({
           <TrashIcon className="h-4 w-4 text-red-600" />
         </button>
       </div>
-      {page.imageUrl && (
-        <img
-          src={page.imageUrl}
-          alt={page.title || 'Page'}
-          className="w-full h-32 object-cover mb-3 border border-gray-300"
-        />
+      {(page.imageUrl || (page.type === 'video' && (page.posterUrl || page.videoUrl))) && (
+        page.type === 'video' && (page.posterUrl || page.videoUrl) ? (
+          page.posterUrl ? (
+            <img
+              src={page.posterUrl}
+              alt={page.title || 'Video'}
+              className="w-full h-32 object-cover mb-3 border border-gray-300"
+            />
+          ) : (
+            <video
+              src={page.videoUrl}
+              preload="metadata"
+              muted
+              playsInline
+              className="w-full h-32 object-cover mb-3 border border-gray-300"
+            />
+          )
+        ) : (
+          <img
+            src={page.imageUrl}
+            alt={page.title || 'Page'}
+            className="w-full h-32 object-cover mb-3 border border-gray-300"
+          />
+        )
       )}
       <h3 className="font-bold mb-1 truncate">{page.title || 'Untitled'}</h3>
       {page.content && (
@@ -149,6 +174,8 @@ export function StorybookDetail({ storybookId }: StorybookDetailProps) {
   const [editedTitle, setEditedTitle] = useState('');
   const [editedDescription, setEditedDescription] = useState('');
   const [addMediaType, setAddMediaType] = useState<'image' | 'video' | null>(null);
+  const [isImportingFolder, setIsImportingFolder] = useState(false);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadStorybookData();
@@ -223,20 +250,118 @@ export function StorybookDetail({ storybookId }: StorybookDetailProps) {
     }
   };
 
+  const handleFolderChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!storybook || !files?.length) {
+        e.target.value = '';
+        return;
+      }
+      setIsImportingFolder(true);
+      const fileList = Array.from(files).sort((a, b) =>
+        (a.webkitRelativePath || a.name).localeCompare(b.webkitRelativePath || b.name)
+      );
+
+      const readFile = (file: File): Promise<{ type: 'image' | 'video' | 'text'; title: string; urlOrDataUrl?: string; content?: string } | null> => {
+        const ext = file.name.split('.').pop()?.toLowerCase() || '';
+        const title = file.name.replace(/\.[^.]+$/, '') || file.name;
+        if (FOLDER_IMAGE_EXTS.has(ext)) {
+          return new Promise((resolve, reject) => {
+            const r = new FileReader();
+            r.onload = () => resolve({ type: 'image', title, urlOrDataUrl: r.result as string });
+            r.onerror = () => reject(r.error);
+            r.readAsDataURL(file);
+          });
+        }
+        if (FOLDER_VIDEO_EXTS.has(ext)) {
+          return new Promise((resolve, reject) => {
+            const r = new FileReader();
+            r.onload = () => resolve({ type: 'video', title, urlOrDataUrl: r.result as string });
+            r.onerror = () => reject(r.error);
+            r.readAsDataURL(file);
+          });
+        }
+        if (FOLDER_TEXT_EXTS.has(ext)) {
+          return file.text().then((content) => ({ type: 'text', title, content }));
+        }
+        return Promise.resolve(null);
+      };
+
+      try {
+        const results = await Promise.all(fileList.map(readFile));
+        const items = results.filter((r): r is NonNullable<typeof r> => r != null);
+        if (items.length === 0) {
+          await dialog.alert('No supported files found (image: jpg/png/gif/webp…; video: mp4/webm/mov…; text: txt/md).');
+          return;
+        }
+        const newPages: StorybookPage[] = await Promise.all(
+          items.map(async (item, i) => {
+            const posterUrl =
+              item.type === 'video' && item.urlOrDataUrl
+                ? await getVideoPosterUrl(item.urlOrDataUrl).catch(() => undefined)
+                : undefined;
+            return {
+              id: `page-${Date.now()}-${i}`,
+              storybookId,
+              order: pages.length + i,
+              type: item.type,
+              timestamp: Date.now(),
+              title: item.title,
+              imageUrl: item.type === 'image' ? item.urlOrDataUrl : undefined,
+              videoUrl: item.type === 'video' ? item.urlOrDataUrl : undefined,
+              content: item.type === 'text' ? item.content : undefined,
+              posterUrl,
+            };
+          })
+        );
+        for (const p of newPages) await savePage(p);
+        const updatedStorybook: Storybook = {
+          ...storybook,
+          pageIds: [...storybook.pageIds, ...newPages.map((p) => p.id)],
+          updatedAt: Date.now(),
+        };
+        await saveStorybook(updatedStorybook);
+        setPages((prev) => [...prev, ...newPages]);
+        setStorybook(updatedStorybook);
+      } catch (err) {
+        console.error('Failed to import folder:', err);
+        await dialog.alert('Failed to import folder.');
+      } finally {
+        setIsImportingFolder(false);
+        e.target.value = '';
+      }
+    },
+    [storybook, storybookId, pages, dialog]
+  );
+
+  const triggerFolderSelect = useCallback(() => {
+    if (isImportingFolder) return;
+    folderInputRef.current?.click();
+  }, [isImportingFolder]);
+
   const handleAddMediaConfirm = async (items: AddMediaItem[]) => {
     if (!storybook || !addMediaType || items.length === 0) return;
     setAddMediaType(null);
 
-    const newPages: StorybookPage[] = items.map((item, i) => ({
-      id: `page-${Date.now()}-${i}`,
-      storybookId,
-      order: pages.length + i,
-      type: addMediaType,
-      timestamp: Date.now(),
-      title: item.title,
-      imageUrl: addMediaType === 'image' ? item.urlOrDataUrl : undefined,
-      videoUrl: addMediaType === 'video' ? item.urlOrDataUrl : undefined,
-    }));
+    const newPages: StorybookPage[] = await Promise.all(
+      items.map(async (item, i) => {
+        const posterUrl =
+          addMediaType === 'video'
+            ? await getVideoPosterUrl(item.urlOrDataUrl).catch(() => undefined)
+            : undefined;
+        return {
+          id: `page-${Date.now()}-${i}`,
+          storybookId,
+          order: pages.length + i,
+          type: addMediaType,
+          timestamp: Date.now(),
+          title: item.title,
+          imageUrl: addMediaType === 'image' ? item.urlOrDataUrl : undefined,
+          videoUrl: addMediaType === 'video' ? item.urlOrDataUrl : undefined,
+          posterUrl,
+        };
+      })
+    );
 
     try {
       for (const p of newPages) await savePage(p);
@@ -346,7 +471,14 @@ export function StorybookDetail({ storybookId }: StorybookDetailProps) {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    setActiveId(String(event.active.id));
+  }, []);
+
   const handleDragEnd = async (event: DragEndEvent) => {
+    setActiveId(null);
     const { active, over } = event;
     if (!storybook || !over || active.id === over.id) return;
     const from = pages.findIndex((p) => p.id === active.id);
@@ -508,6 +640,15 @@ export function StorybookDetail({ storybookId }: StorybookDetailProps) {
         {/* Add Page Section */}
         <div className="mb-8">
           <h2 className="text-xl font-bold mb-4 uppercase">Add Page</h2>
+          <input
+            ref={folderInputRef}
+            type="file"
+            multiple
+            onChange={handleFolderChange}
+            className="hidden"
+            aria-hidden
+            {...({ webkitdirectory: '', directory: '' } as React.InputHTMLAttributes<HTMLInputElement>)}
+          />
           <div className="flex gap-3 flex-wrap">
             {(['text', 'webpage', 'image', 'audio-image', 'video'] as const).map((type) => {
               const Icon = PAGE_TYPE_ICONS[type];
@@ -522,6 +663,15 @@ export function StorybookDetail({ storybookId }: StorybookDetailProps) {
                 </button>
               );
             })}
+            <button
+              type="button"
+              onClick={triggerFolderSelect}
+              disabled={isImportingFolder}
+              className="flex items-center gap-2 px-4 py-3 bg-white border-2 border-loft-black shadow-[4px_4px_0px_#000] hover:shadow-[2px_2px_0px_#000] hover:translate-x-0.5 hover:translate-y-0.5 transition-all font-bold text-sm disabled:opacity-50 disabled:pointer-events-none"
+            >
+              <FolderIcon className="h-5 w-5" />
+              {isImportingFolder ? 'IMPORTING…' : 'IMPORT FOLDER'}
+            </button>
           </div>
         </div>
 
@@ -538,6 +688,7 @@ export function StorybookDetail({ storybookId }: StorybookDetailProps) {
             <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}
+              onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
             >
               <SortableContext
@@ -555,6 +706,45 @@ export function StorybookDetail({ storybookId }: StorybookDetailProps) {
                   ))}
                 </div>
               </SortableContext>
+              <DragOverlay dropAnimation={null}>
+                {activeId ? (() => {
+                  const page = pages.find((p) => p.id === activeId);
+                  const index = page ? pages.findIndex((p) => p.id === activeId) : 0;
+                  if (!page) return null;
+                  const Icon = PAGE_TYPE_ICONS[page.type];
+                  return (
+                    <div className="bg-white border-2 border-loft-black shadow-[8px_8px_0px_#000] p-4 cursor-grabbing">
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-mono text-gray-500">#{index + 1}</span>
+                          <Icon className="h-5 w-5 text-loft-black" />
+                          <span className="text-xs font-bold uppercase text-gray-600">
+                            {PAGE_TYPE_LABELS[page.type]}
+                          </span>
+                        </div>
+                      </div>
+                      {(page.imageUrl || (page.type === 'video' && (page.posterUrl || page.videoUrl))) && (
+                        page.type === 'video' && (page.posterUrl || page.videoUrl) ? (
+                          page.posterUrl ? (
+                            <img src={page.posterUrl} alt="" className="w-full h-32 object-cover mb-3 border border-gray-300" />
+                          ) : (
+                            <video src={page.videoUrl} preload="metadata" muted playsInline className="w-full h-32 object-cover mb-3 border border-gray-300" />
+                          )
+                        ) : (
+                          <img src={page.imageUrl} alt="" className="w-full h-32 object-cover mb-3 border border-gray-300" />
+                        )
+                      )}
+                      <h3 className="font-bold mb-1 truncate">{page.title || 'Untitled'}</h3>
+                      {page.content && (
+                        <p className="text-sm text-gray-600 line-clamp-3">{page.content}</p>
+                      )}
+                      {page.url && (
+                        <p className="text-xs text-blue-600 truncate">{page.url}</p>
+                      )}
+                    </div>
+                  );
+                })() : null}
+              </DragOverlay>
             </DndContext>
           )}
         </div>
