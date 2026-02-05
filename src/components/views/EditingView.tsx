@@ -204,7 +204,7 @@ export function EditingView({
               </>
             )}
           </div>
-          <div className="mt-4 flex flex-col sm:flex-row justify-between items-center bg-white border-2 border-loft-black p-4 gap-4">
+          <div className="mt-6 flex flex-col sm:flex-row justify-center items-center gap-4">
             <UsageDisplay />
             <button
               onClick={onSaveToGallery}

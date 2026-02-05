@@ -19,6 +19,7 @@ import type {
   AudioPlayOptions,
   Storybook,
   StorybookPage,
+  DynamicProperty,
 } from '@/types';
 
 interface CinematicStore {
@@ -54,6 +55,10 @@ interface CinematicStore {
   ambienceType: AmbienceType;
   temperature: number;
   selectedVoice: VoiceOption;
+  
+  // Magic Studio dynamic properties
+  dynamicProperties: DynamicProperty[];
+  isAnalyzingPrompt: boolean;
   
   // Storybook state
   storybooks: Storybook[];
@@ -96,6 +101,13 @@ interface CinematicStore {
   reorderVoiceClips: (draggedId: string, toIndex: number) => void;
   setTemperature: (t: number) => void;
   setSelectedVoice: (v: VoiceOption) => void;
+
+  // Magic Studio dynamic properties actions
+  setDynamicProperties: (properties: DynamicProperty[]) => void;
+  updateDynamicProperty: (id: string, patch: Partial<DynamicProperty>) => void;
+  togglePropertyActive: (id: string) => void;
+  setIsAnalyzingPrompt: (v: boolean) => void;
+  clearDynamicProperties: () => void;
 
   updateIdeaPrompt: (id: string, technicalPrompt: string) => void;
   resetVoiceForNewImage: () => void;
@@ -147,6 +159,8 @@ export const useCinematicStore = create<CinematicStore>()(
       ambienceType: 'narration',
       temperature: 0.5,
       selectedVoice: 'Auto',
+      dynamicProperties: [],
+      isAnalyzingPrompt: false,
       storybooks: [],
       currentStorybookId: null,
 
@@ -210,6 +224,23 @@ export const useCinematicStore = create<CinematicStore>()(
         }),
       setTemperature: (temperature) => set({ temperature }),
       setSelectedVoice: (selectedVoice) => set({ selectedVoice }),
+
+      // Magic Studio dynamic properties actions
+      setDynamicProperties: (dynamicProperties) => set({ dynamicProperties }),
+      updateDynamicProperty: (id, patch) =>
+        set((state) => ({
+          dynamicProperties: state.dynamicProperties.map((prop) =>
+            prop.id === id ? { ...prop, ...patch } : prop
+          ),
+        })),
+      togglePropertyActive: (id) =>
+        set((state) => ({
+          dynamicProperties: state.dynamicProperties.map((prop) =>
+            prop.id === id ? { ...prop, isActive: !prop.isActive } : prop
+          ),
+        })),
+      setIsAnalyzingPrompt: (isAnalyzingPrompt) => set({ isAnalyzingPrompt }),
+      clearDynamicProperties: () => set({ dynamicProperties: [] }),
 
       updateIdeaPrompt: (id, technicalPrompt) =>
         set((state) => ({

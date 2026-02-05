@@ -850,6 +850,128 @@ export async function generateBackgroundAudio(
   return { audioData, usage };
 }
 
+/**
+ * Analyze user's edit prompt and generate intelligent recommendations
+ * Uses Gemini to understand intent, analyze images, and suggest optimal prompt + properties
+ */
+export async function analyzeEditPrompt(
+  userInput: string,
+  originalImageBase64: string,
+  blendImageBase64?: string
+): Promise<{
+  optimizedPrompt: string;
+  properties: Array<{
+    id: string;
+    category: string;
+    name: string;
+    value: string;
+    isActive: boolean;
+  }>;
+  usage: TokenUsage;
+}> {
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  
+  const cleanOriginal = originalImageBase64.replace(
+    /^data:image\/(png|jpeg|jpg);base64,/,
+    ''
+  );
+
+  const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [
+    { inlineData: { mimeType: 'image/png', data: cleanOriginal } },
+  ];
+
+  if (blendImageBase64) {
+    const cleanBlend = blendImageBase64.replace(
+      /^data:image\/(png|jpeg|jpg);base64,/,
+      ''
+    );
+    parts.push({ inlineData: { mimeType: 'image/png', data: cleanBlend } });
+  }
+
+  const systemPrompt = `You are an expert image editing AI specialized in Gemini's image generation capabilities.
+
+Your task:
+1. Analyze the provided image(s) and user's intent: "${userInput}"
+2. Generate an optimized, detailed prompt following Gemini image editing best practices
+3. Extract/generate dynamic properties that can be adjusted
+
+Your response must be valid JSON with this structure:
+{
+  "optimizedPrompt": "A hyper-specific, detailed prompt...",
+  "properties": [
+    {
+      "category": "Visual Style",
+      "name": "Art Style",
+      "value": "Photorealistic"
+    },
+    {
+      "category": "Atmosphere",
+      "name": "Lighting",
+      "value": "Warm golden hour"
+    },
+    {
+      "category": "Elements",
+      "name": "Added Object",
+      "value": "Vintage car"
+    }
+  ]
+}
+
+CRITICAL GUIDELINES:
+- Be hyper-specific in the optimized prompt (lighting, materials, perspective, style details)
+- Generate 5-8 properties across categories: Visual Style, Atmosphere, Elements, Composition, Effects
+- Property values should be descriptive but concise
+- The optimized prompt should incorporate all property values coherently
+- Follow Gemini best practices: specify camera angles, lighting details, material properties
+- For inpainting/editing: describe what to preserve and what to change explicitly
+- For style transfer: specify artistic techniques and aesthetic details`;
+
+  parts.push({ text: systemPrompt });
+
+  const response = (await retryOperation(() =>
+    ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: { parts },
+      config: {
+        responseMimeType: 'application/json',
+        temperature: 0.7,
+      },
+    })
+  )) as GenerateContentResponse;
+
+  const usageData = response.usageMetadata;
+  const usage: TokenUsage = {
+    inputTokens: usageData?.promptTokenCount || 0,
+    outputTokens: usageData?.candidatesTokenCount || 0,
+    totalTokens: usageData?.totalTokenCount || 0,
+    estimatedCost: calculateCost('gemini-2.5-flash', usageData || {}),
+  };
+
+  const text = (response as { text?: string }).text || '{}';
+  const data = JSON.parse(text) as {
+    optimizedPrompt?: string;
+    properties?: Array<{ category?: string; name?: string; value?: string }>;
+  };
+
+  if (!data.optimizedPrompt || !Array.isArray(data.properties)) {
+    throw new Error('Invalid response from AI prompt analyzer');
+  }
+
+  const properties = data.properties.map((prop, idx) => ({
+    id: `prop-${idx}-${Date.now()}`,
+    category: prop.category || 'General',
+    name: prop.name || 'Property',
+    value: prop.value || '',
+    isActive: true,
+  }));
+
+  return {
+    optimizedPrompt: data.optimizedPrompt,
+    properties,
+    usage,
+  };
+}
+
 /** Build WAV blob from raw PCM base64 (for response or client). */
 export function createWavBlobFromBase64(base64Data: string): Buffer {
   const binaryString = Buffer.from(base64Data, 'base64');
