@@ -198,7 +198,7 @@ export function MagicStudioPanel({
           onClick={handleAIGenerate}
           disabled={!textEditInstruction.trim() || isAnalyzingPrompt}
           title={isAnalyzingPrompt ? 'Analyzing...' : 'AI Generate'}
-          className="absolute bottom-2 right-2 w-8 h-8 flex items-center justify-center bg-loft-yellow text-black border-2 border-black hover:bg-yellow-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="absolute bottom-2 right-1 w-8 h-8 flex items-center justify-center bg-loft-yellow text-black border-2 border-black hover:bg-yellow-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {isAnalyzingPrompt ? (
             <span className="inline-block w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
