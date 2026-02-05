@@ -191,14 +191,20 @@ export function MagicStudioPanel({
               ? 'Describe how to blend this image...'
               : "Describe the change (e.g. 'Add a cat', 'Make it cyberpunk')..."
           }
-          className="w-full h-32 border-2 border-black p-3 pr-28 pb-10 text-xs font-medium outline-none resize-none focus:bg-white bg-white/80 transition-colors"
+          className="w-full h-32 border-2 border-black p-3 text-xs font-medium outline-none resize-none focus:bg-white bg-white/80 transition-colors"
         />
         <button
+          type="button"
           onClick={handleAIGenerate}
           disabled={!textEditInstruction.trim() || isAnalyzingPrompt}
-          className="absolute bottom-3 right-2 bg-loft-yellow text-black px-4 py-1 text-xs font-bold border-2 border-black hover:bg-yellow-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          title={isAnalyzingPrompt ? 'Analyzing...' : 'AI Generate'}
+          className="absolute bottom-2 right-2 w-8 h-8 flex items-center justify-center bg-loft-yellow text-black border-2 border-black hover:bg-yellow-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {isAnalyzingPrompt ? 'ANALYZING...' : 'AI GENERATE'}
+          {isAnalyzingPrompt ? (
+            <span className="inline-block w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <SparklesIcon className="h-5 w-5" />
+          )}
         </button>
       </div>
 
